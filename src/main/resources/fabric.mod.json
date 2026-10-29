@@ -1,0 +1,32 @@
+{
+	"schemaVersion": 1,
+	"id": "dueldojo",
+	"version": "${version}",
+	"name": "Duel Dojo",
+	"description": "Single-player sword PvP practice: duel bots across ten skill tiers (LT5 to HT1) in a sky arena, one fight or first-to-N rounds like a tier test. Tiers are calibrated against a real sword tier-list distribution and human reaction/aim research; each changes how the bot aims, times its 1.9+ attack cooldown, spaces, strafes, W-taps, crit-jumps, jump-resets and reads your cooldown. Bots follow normal player rules: 3-block reach, player movement physics, human reaction times.",
+	"authors": [
+		"Tsundosika"
+	],
+	"contact": {
+		"homepage": "https://github.com/Tsundosika/DuelDojo",
+		"sources": "https://github.com/Tsundosika/DuelDojo",
+		"issues": "https://github.com/Tsundosika/DuelDojo/issues"
+	},
+	"license": "MIT",
+	"icon": "assets/dueldojo/icon.png",
+	"environment": "*",
+	"entrypoints": {
+		"main": [
+			"io.github.tsundosika.dueldojo.DuelDojo"
+		],
+		"client": [
+			"io.github.tsundosika.dueldojo.client.DuelDojoClient"
+		]
+	},
+	"depends": {
+		"fabricloader": ">=0.17.0",
+		"minecraft": "~1.21.8",
+		"java": ">=21",
+		"fabric-api": "*"
+	}
+}

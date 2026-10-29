@@ -1,0 +1,17 @@
+{
+	"schemaVersion": 1,
+	"id": "dueldojo-test",
+	"version": "1.0.0",
+	"name": "Duel Dojo tests",
+	"license": "MIT",
+	"environment": "*",
+	"entrypoints": {
+		"fabric-client-gametest": [
+			"io.github.tsundosika.dueldojo.ArenaClientGameTest",
+			"io.github.tsundosika.dueldojo.test.LadderClientGameTest"
+		]
+	},
+	"depends": {
+		"dueldojo": "*"
+	}
+}

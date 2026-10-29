@@ -1,0 +1,400 @@
+package io.github.tsundosika.dueldojo;
+
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
+import net.minecraft.ChatFormatting;
+import net.minecraft.core.Holder;
+import net.minecraft.network.chat.ClickEvent;
+import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.HoverEvent;
+import net.minecraft.network.chat.MutableComponent;
+import net.minecraft.network.protocol.game.ClientboundSetSubtitleTextPacket;
+import net.minecraft.network.protocol.game.ClientboundSetTitleTextPacket;
+import net.minecraft.network.protocol.game.ClientboundSetTitlesAnimationPacket;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.sounds.SoundEvents;
+import net.minecraft.sounds.SoundSource;
+import net.minecraft.util.Mth;
+import net.minecraft.world.damagesource.DamageSource;
+import net.minecraft.world.entity.EquipmentSlot;
+import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.ai.attributes.Attribute;
+import net.minecraft.world.entity.ai.attributes.AttributeInstance;
+import net.minecraft.world.entity.ai.attributes.AttributeModifier;
+import net.minecraft.world.entity.ai.attributes.Attributes;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.level.GameType;
+import net.minecraft.world.level.levelgen.Heightmap;
+import net.minecraft.world.phys.Vec3;
+
+/**
+ * Starts, runs and ends duels. One duel per player, played as "first to N" rounds (N = 1 is a single fight).
+ * All state lives here; on disk there are only the stats and, while a duel runs, {@link DuelRecovery}'s file.
+ */
+public final class DuelManager {
+	private static final int COUNTDOWN_TICKS = 60;
+	/** Between rounds, the round result stays on screen this long before the next countdown starts. */
+	private static final int ROUND_PAUSE_TICKS = 30;
+	private static final double MAX_DISTANCE = 48.0;
+	/** Fighting where you stand: the bot starts this far in front of you. */
+	private static final double HERE_DISTANCE = 6.0;
+	private static final ResourceLocation FREEZE = ResourceLocation.fromNamespaceAndPath(DuelDojo.MOD_ID, "countdown_freeze");
+	private static final Map<UUID, Duel> DUELS = new HashMap<>();
+
+	private DuelManager() {
+	}
+
+	private static final class Duel {
+		final ServerPlayer player;
+		final BotEntity bot;
+		final Tier tier;
+		final int firstTo;
+		final PlayerSnapshot snapshot;
+		/** Null when fighting where the player stood. */
+		final DuelArena arena;
+		final Vec3 playerSpawn;
+		final float playerYaw;
+		final Vec3 botSpawn;
+		final float botYaw;
+		/** This round's numbers, and all rounds' together. */
+		FightStats you = new FightStats();
+		FightStats botStats = new FightStats();
+		final FightStats youTotal = new FightStats();
+		final FightStats botTotal = new FightStats();
+		int yourRounds;
+		int botRounds;
+		int countdown = COUNTDOWN_TICKS;
+		int fightTicks;
+		int totalTicks;
+		/** Round result waiting for the end of the tick: 1 = you won the round, 2 = the bot did, 0 = none. */
+		int pending;
+		boolean finished;
+
+		Duel(ServerPlayer player, BotEntity bot, Tier tier, int firstTo, PlayerSnapshot snapshot, DuelArena arena,
+				Vec3 playerSpawn, float playerYaw, Vec3 botSpawn, float botYaw) {
+			this.player = player;
+			this.bot = bot;
+			this.tier = tier;
+			this.firstTo = firstTo;
+			this.snapshot = snapshot;
+			this.arena = arena;
+			this.playerSpawn = playerSpawn;
+			this.playerYaw = playerYaw;
+			this.botSpawn = botSpawn;
+			this.botYaw = botYaw;
+		}
+	}
+
+	public static boolean inDuel(ServerPlayer player) {
+		return DUELS.containsKey(player.getUUID());
+	}
+
+	/**
+	 * @param firstTo rounds needed to win (1 = a single fight)
+	 * @param inArena true: in a {@link DuelArena} built above you; false: right where you stand
+	 */
+	public static void start(ServerPlayer player, Tier tier, int firstTo, boolean inArena) {
+		if (inDuel(player)) {
+			player.sendSystemMessage(Component.literal("You're already in a duel. Use /dojo stop to give up.").withStyle(ChatFormatting.RED));
+			return;
+		}
+		ServerLevel level = (ServerLevel) player.level();
+		PlayerSnapshot snapshot = PlayerSnapshot.capture(player);
+
+		DuelArena arena = null;
+		Vec3 playerSpawn;
+		float playerYaw;
+		Vec3 botSpawn;
+		float botYaw;
+		if (inArena) {
+			arena = DuelArena.build(level, player.blockPosition());
+			if (arena == null) {
+				player.sendSystemMessage(Component.literal("There's no free space for the arena near the top of the world above you. Use /dojo "
+						+ tier.lowerId() + " here to fight where you stand.").withStyle(ChatFormatting.RED));
+				return;
+			}
+			playerSpawn = arena.playerSpawn();
+			playerYaw = 0.0F;
+			botSpawn = arena.botSpawn();
+			botYaw = 180.0F;
+		} else {
+			Vec3 look = player.getLookAngle();
+			Vec3 dir = new Vec3(look.x, 0, look.z);
+			dir = dir.lengthSqr() < 1.0E-4 ? new Vec3(0, 0, 1) : dir.normalize();
+			double x = player.getX() + dir.x * HERE_DISTANCE;
+			double z = player.getZ() + dir.z * HERE_DISTANCE;
+			int ground = level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, Mth.floor(x), Mth.floor(z));
+			double y = Math.abs(ground - player.getY()) <= 4 ? ground : player.getY();
+			botYaw = (float) (Mth.atan2(-dir.z, -dir.x) * Mth.RAD_TO_DEG) - 90.0F;
+			botSpawn = new Vec3(x, y, z);
+			playerYaw = Mth.wrapDegrees(botYaw + 180.0F);
+			playerSpawn = player.position();
+		}
+
+		BotEntity bot = new BotEntity(DuelDojo.BOT, level);
+		bot.setup(tier, player);
+		bot.snapTo(botSpawn.x, botSpawn.y, botSpawn.z, botYaw, 0.0F);
+		level.addFreshEntity(bot);
+
+		Duel duel = new Duel(player, bot, tier, firstTo, snapshot, arena, playerSpawn, playerYaw, botSpawn, botYaw);
+		DUELS.put(player.getUUID(), duel);
+		DuelRecovery.begin(player, snapshot, arena);
+		resetFighters(duel);
+
+		int[] wl = DuelStats.get(player.getUUID(), tier);
+		player.sendSystemMessage(Component.literal("Duel vs ").append(tierName(tier))
+				.append(Component.literal(" bot" + (firstTo > 1 ? ", first to " + firstTo : "") + " (your record: " + wl[0] + "W / " + wl[1]
+						+ "L). Your items come back afterwards. /dojo stop to give up.").withStyle(ChatFormatting.GRAY)));
+	}
+
+	static void giveKit(ServerPlayer player) {
+		player.setItemSlot(EquipmentSlot.HEAD, new ItemStack(Items.DIAMOND_HELMET));
+		player.setItemSlot(EquipmentSlot.CHEST, new ItemStack(Items.DIAMOND_CHESTPLATE));
+		player.setItemSlot(EquipmentSlot.LEGS, new ItemStack(Items.DIAMOND_LEGGINGS));
+		player.setItemSlot(EquipmentSlot.FEET, new ItemStack(Items.DIAMOND_BOOTS));
+		player.setItemSlot(EquipmentSlot.MAINHAND, new ItemStack(Items.DIAMOND_SWORD));
+	}
+
+	/** Both fighters back on their marks with a fresh kit and full health; you stay frozen until "FIGHT!". */
+	private static void resetFighters(Duel duel) {
+		ServerPlayer player = duel.player;
+		BotEntity bot = duel.bot;
+		player.setGameMode(GameType.SURVIVAL);
+		player.getInventory().clearContent();
+		giveKit(player);
+		player.removeAllEffects();
+		player.clearFire();
+		player.setHealth(player.getMaxHealth());
+		player.getFoodData().setFoodLevel(20);
+		player.getFoodData().setSaturation(5.0F);
+		player.teleportTo((ServerLevel) bot.level(), duel.playerSpawn.x, duel.playerSpawn.y, duel.playerSpawn.z, Set.of(), duel.playerYaw, 0.0F, true);
+		player.setDeltaMovement(Vec3.ZERO);
+		player.resetFallDistance();
+		freeze(player, true);
+
+		bot.resetForRound();
+		bot.setActive(false);
+		bot.teleportTo(duel.botSpawn.x, duel.botSpawn.y, duel.botSpawn.z);
+		bot.setYRot(duel.botYaw);
+		bot.setXRot(0.0F);
+		bot.yHeadRot = duel.botYaw;
+		bot.yBodyRot = duel.botYaw;
+	}
+
+	/** Holds you in place during the countdown (no walking, no jumping); looking around still works. */
+	static void freeze(ServerPlayer player, boolean frozen) {
+		for (Holder<Attribute> attribute : List.of(Attributes.MOVEMENT_SPEED, Attributes.JUMP_STRENGTH)) {
+			AttributeInstance instance = player.getAttribute(attribute);
+			if (instance == null) continue;
+			if (frozen) {
+				instance.addOrUpdateTransientModifier(new AttributeModifier(FREEZE, -1.0, AttributeModifier.Operation.ADD_MULTIPLIED_TOTAL));
+			} else {
+				instance.removeModifier(FREEZE);
+			}
+		}
+	}
+
+	public static void tick(MinecraftServer server) {
+		for (Duel duel : new ArrayList<>(DUELS.values())) {
+			if (duel.finished) continue;
+			ServerPlayer player = duel.player;
+			BotEntity bot = duel.bot;
+
+			if (duel.countdown == 0) {
+				// Counted before the round can end, so the swing that ends it is in its numbers too.
+				duel.fightTicks++;
+				duel.you.tick(player);
+				duel.botStats.tick(bot);
+			}
+			if (duel.pending != 0) {
+				endRound(duel, duel.pending == 1);
+				continue;
+			}
+			if (!bot.isAlive()) {
+				abort(duel, "The bot was removed, so the duel was cancelled.");
+				continue;
+			}
+			if (player.isRemoved() || player.level() != bot.level() || player.distanceTo(bot) > MAX_DISTANCE) {
+				abort(duel, "You left the arena, so the duel was cancelled.");
+				continue;
+			}
+			if (duel.countdown > 0) {
+				if (duel.countdown % 20 == 0 && duel.countdown <= COUNTDOWN_TICKS) {
+					int seconds = duel.countdown / 20;
+					MutableComponent subtitle = tierName(duel.tier);
+					if (duel.firstTo > 1) subtitle.append(Component.literal("  ")).append(score(duel));
+					title(player, Component.literal(String.valueOf(seconds)).withStyle(ChatFormatting.YELLOW), subtitle);
+					player.level().playSound(null, player.blockPosition(), SoundEvents.NOTE_BLOCK_HAT.value(), SoundSource.PLAYERS, 1.0F, 1.0F);
+				}
+				duel.countdown--;
+				if (duel.countdown == 0) {
+					title(player, Component.literal("FIGHT!").withStyle(ChatFormatting.RED, ChatFormatting.BOLD), Component.empty());
+					player.level().playSound(null, player.blockPosition(), SoundEvents.NOTE_BLOCK_PLING.value(), SoundSource.PLAYERS, 1.0F, 1.5F);
+					freeze(player, false);
+					bot.setActive(true);
+				}
+			}
+		}
+	}
+
+	/** Fabric AFTER_DAMAGE hook: counts hits and crits for the round summary (also the final blow of a round). */
+	public static void afterDamage(LivingEntity entity, DamageSource source, float baseDamage, float damageTaken, boolean blocked) {
+		if (blocked) return;
+		for (Duel duel : DUELS.values()) {
+			if (duel.finished || duel.countdown > 0) continue;
+			if (entity == duel.bot && source.getEntity() == duel.player) {
+				duel.you.landed(FightStats.isCrit(source, baseDamage), damageTaken, duel.botStats);
+			} else if (entity == duel.player && source.getEntity() == duel.bot) {
+				duel.botStats.landed(FightStats.isCrit(source, baseDamage), damageTaken, duel.you);
+			}
+		}
+	}
+
+	/**
+	 * Fabric ALLOW_DEATH hook: in a duel nobody really dies (no drops, no respawn); whoever would have died loses the
+	 * round, which is settled at the end of the tick.
+	 */
+	public static boolean allowDeath(LivingEntity entity, DamageSource source, float amount) {
+		for (Duel duel : DUELS.values()) {
+			if (duel.finished || (entity != duel.player && entity != duel.bot)) continue;
+			entity.setHealth(entity.getMaxHealth());
+			if (duel.countdown == 0 && duel.pending == 0) duel.pending = entity == duel.bot ? 1 : 2;
+			return false;
+		}
+		return true;
+	}
+
+	public static void stop(ServerPlayer player) {
+		Duel duel = DUELS.get(player.getUUID());
+		if (duel == null) {
+			player.sendSystemMessage(Component.literal("You're not in a duel.").withStyle(ChatFormatting.GRAY));
+			return;
+		}
+		abort(duel, "Duel cancelled. Your items are back.");
+	}
+
+	public static void onDisconnect(ServerPlayer player) {
+		Duel duel = DUELS.get(player.getUUID());
+		if (duel != null) abort(duel, null);
+	}
+
+	public static void abortAll() {
+		for (Duel duel : new ArrayList<>(DUELS.values())) abort(duel, null);
+	}
+
+	private static void abort(Duel duel, String message) {
+		end(duel);
+		if (message != null) duel.player.sendSystemMessage(Component.literal(message).withStyle(ChatFormatting.GRAY));
+	}
+
+	/** Puts everything back: the bot goes, you get your items and place back, the arena comes down. */
+	private static void end(Duel duel) {
+		duel.finished = true;
+		DUELS.remove(duel.player.getUUID());
+		MinecraftServer server = duel.player.getServer();
+		if (duel.bot.isAlive()) duel.bot.discard();
+		freeze(duel.player, false);
+		duel.snapshot.restore(duel.player);
+		if (duel.arena != null && server != null) duel.arena.remove(server);
+		DuelRecovery.end(duel.player);
+	}
+
+	private static void endRound(Duel duel, boolean won) {
+		duel.pending = 0;
+		if (won) {
+			duel.yourRounds++;
+		} else {
+			duel.botRounds++;
+		}
+		DuelStats.record(duel.player.getUUID(), duel.tier, won, duel.you);
+		duel.youTotal.add(duel.you);
+		duel.botTotal.add(duel.botStats);
+		duel.totalTicks += duel.fightTicks;
+		if (duel.yourRounds >= duel.firstTo || duel.botRounds >= duel.firstTo) {
+			finish(duel, won);
+			return;
+		}
+
+		ServerPlayer player = duel.player;
+		title(player,
+				won ? Component.literal("ROUND WON").withStyle(ChatFormatting.GREEN, ChatFormatting.BOLD)
+						: Component.literal("ROUND LOST").withStyle(ChatFormatting.RED, ChatFormatting.BOLD),
+				score(duel));
+		player.level().playSound(null, player.blockPosition(),
+				won ? SoundEvents.NOTE_BLOCK_BELL.value() : SoundEvents.NOTE_BLOCK_BASS.value(), SoundSource.PLAYERS, 1.0F, 1.0F);
+		duel.you = new FightStats();
+		duel.botStats = new FightStats();
+		duel.fightTicks = 0;
+		duel.countdown = COUNTDOWN_TICKS + ROUND_PAUSE_TICKS;
+		resetFighters(duel);
+	}
+
+	private static void finish(Duel duel, boolean won) {
+		end(duel);
+		ServerPlayer player = duel.player;
+		int[] wl = DuelStats.get(player.getUUID(), duel.tier);
+		MutableComponent subtitle = Component.literal("vs ").append(tierName(duel.tier)).append(Component.literal("  "));
+		subtitle.append(duel.firstTo > 1 ? score(duel) : Component.literal(wl[0] + "W / " + wl[1] + "L"));
+
+		title(player,
+				won ? Component.literal("VICTORY").withStyle(ChatFormatting.GREEN, ChatFormatting.BOLD)
+						: Component.literal("DEFEAT").withStyle(ChatFormatting.RED, ChatFormatting.BOLD),
+				subtitle);
+		player.level().playSound(null, player.blockPosition(),
+				won ? SoundEvents.PLAYER_LEVELUP : SoundEvents.VILLAGER_NO, SoundSource.PLAYERS, 1.0F, 1.0F);
+
+		boolean here = duel.arena == null;
+		MutableComponent line = Component.literal(won ? "You beat the " : "You lost to the ")
+				.withStyle(won ? ChatFormatting.GREEN : ChatFormatting.RED)
+				.append(tierName(duel.tier))
+				.append(Component.literal(" bot" + (duel.firstTo > 1 ? " " + duel.yourRounds + "–" + duel.botRounds : "") + ". ")
+						.withStyle(won ? ChatFormatting.GREEN : ChatFormatting.RED))
+				.append(button("[Rematch]", ChatFormatting.YELLOW, command(duel.tier, duel.firstTo, here), "Fight the same tier again"));
+		Tier next = duel.tier.next();
+		if (won && next != null) {
+			line.append(Component.literal(" ")).append(button("[Next: " + next.id + "]", next.color, command(next, duel.firstTo, here), next.description));
+		}
+		player.sendSystemMessage(line);
+		player.sendSystemMessage(Component.literal("You: " + summary(duel.youTotal) + "  |  Bot: " + summary(duel.botTotal)
+				+ "  |  " + Math.round(duel.totalTicks / 20.0F) + " s").withStyle(ChatFormatting.GRAY));
+	}
+
+	static String command(Tier tier, int firstTo, boolean here) {
+		return "/dojo " + tier.lowerId() + (firstTo > 1 ? " " + firstTo : "") + (here ? " here" : "");
+	}
+
+	private static MutableComponent score(Duel duel) {
+		return Component.literal("You " + duel.yourRounds).withStyle(ChatFormatting.GREEN)
+				.append(Component.literal(" – ").withStyle(ChatFormatting.GRAY))
+				.append(Component.literal(duel.botRounds + " Bot").withStyle(ChatFormatting.RED))
+				.append(Component.literal("  (first to " + duel.firstTo + ")").withStyle(ChatFormatting.GRAY));
+	}
+
+	private static String summary(FightStats s) {
+		return s.hits + "/" + s.swings + " hits (" + s.accuracy() + "%), " + s.crits + " crits, best combo " + s.bestCombo;
+	}
+
+	static MutableComponent tierName(Tier tier) {
+		return Component.literal(tier.id).withStyle(tier.color, ChatFormatting.BOLD);
+	}
+
+	static MutableComponent button(String label, ChatFormatting color, String command, String hover) {
+		return Component.literal(label).withStyle(style -> style.withColor(color)
+				.withClickEvent(new ClickEvent.RunCommand(command))
+				.withHoverEvent(new HoverEvent.ShowText(Component.literal(hover))));
+	}
+
+	private static void title(ServerPlayer player, Component title, Component subtitle) {
+		player.connection.send(new ClientboundSetTitlesAnimationPacket(0, 25, 5));
+		player.connection.send(new ClientboundSetSubtitleTextPacket(subtitle));
+		player.connection.send(new ClientboundSetTitleTextPacket(title));
+	}
+}
