@@ -3,7 +3,7 @@
 	"id": "dueldojo",
 	"version": "${version}",
 	"name": "Duel Dojo",
-	"description": "Single-player sword PvP practice: duel bots across ten skill tiers (LT5 to HT1) in a sky arena, one fight or first-to-N rounds like a tier test. Tiers are calibrated against a real sword tier-list distribution and human reaction/aim research; each changes how the bot aims, times its 1.9+ attack cooldown, spaces, strafes, W-taps, crit-jumps, jump-resets and reads your cooldown. Bots follow normal player rules: 3-block reach, player movement physics, human reaction times.",
+	"description": "Sword PvP practice bots with ten tiers from LT5 to HT1. Type /dojo to start a duel.",
 	"authors": [
 		"Tsundosika"
 	],
