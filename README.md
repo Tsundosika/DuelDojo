@@ -3,6 +3,8 @@
 Sword PvP practice bots for Fabric 1.21.8. Pick a tier from LT5 to HT1 and 1v1 the bot in a small sky
 arena, either one fight or first to 10 like a tier test.
 
+![Fighting the HT3 bot](docs/duel.png)
+
 ## Install
 
 You need Fabric Loader and [Fabric API](https://modrinth.com/mod/fabric-api) for 1.21.8. Put the jar from
@@ -28,6 +30,11 @@ It's still a beta. If a tier feels too easy or too hard, open an issue and tell 
 You and the bot both get full diamond armor and a diamond sword. The arena is built near the build limit
 above you (only in empty air) and removed after the duel, and you get your items and position back, even if
 the game crashes mid-duel.
+
+<p>
+  <img src="docs/arena.png" width="49%" alt="The arena above the clouds">
+  <img src="docs/first-to-10.png" width="49%" alt="Countdown before a first to 10">
+</p>
 
 Every bot has the same health and kit. The tier only changes how it plays: reaction time, aim, hit timing,
 spacing, strafing, W-taps, crits, jump resets and reading your cooldown. Bots follow normal player rules
