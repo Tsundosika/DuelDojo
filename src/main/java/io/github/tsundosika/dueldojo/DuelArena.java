@@ -6,7 +6,7 @@ import java.util.function.BiConsumer;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.resources.ResourceKey;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.Level;
@@ -96,7 +96,7 @@ final class DuelArena {
 	}
 
 	void save(ValueOutput out) {
-		out.putString("dimension", dimension.location().toString());
+		out.putString("dimension", dimension.identifier().toString());
 		out.putInt("x", center.getX());
 		out.putInt("y", center.getY());
 		out.putInt("z", center.getZ());
@@ -104,7 +104,7 @@ final class DuelArena {
 
 	static DuelArena load(ValueInput in) {
 		ResourceKey<Level> dimension = ResourceKey.create(Registries.DIMENSION,
-				ResourceLocation.parse(in.getStringOr("dimension", Level.OVERWORLD.location().toString())));
+				Identifier.parse(in.getStringOr("dimension", Level.OVERWORLD.identifier().toString())));
 		return new DuelArena(dimension, new BlockPos(in.getIntOr("x", 0), in.getIntOr("y", 0), in.getIntOr("z", 0)));
 	}
 

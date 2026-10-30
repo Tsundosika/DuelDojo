@@ -9,7 +9,7 @@ import java.util.List;
 import net.fabricmc.fabric.api.client.gametest.v1.FabricClientGameTest;
 import net.fabricmc.fabric.api.client.gametest.v1.context.ClientGameTestContext;
 import net.fabricmc.fabric.api.client.gametest.v1.context.TestSingleplayerContext;
-import net.minecraft.client.GraphicsStatus;
+import net.minecraft.client.GraphicsPreset;
 import net.minecraft.client.InactivityFpsLimit;
 import net.minecraft.server.level.ParticleStatus;
 import net.minecraft.server.level.ServerLevel;
@@ -39,16 +39,17 @@ public class LadderClientGameTest implements FabricClientGameTest {
 		// One server tick runs per rendered frame here, so frame caps would slow the simulation down: no vsync,
 		// no frame limit, and no idle cap (by default the game drops its frame rate when nobody touches it).
 		context.runOnClient(client -> {
+			// The preset first: it changes several other options.
+			client.options.graphicsPreset().set(GraphicsPreset.FAST);
 			client.options.enableVsync().set(false);
 			client.options.framerateLimit().set(260);
 			client.options.inactivityFpsLimit().set(InactivityFpsLimit.MINIMIZED);
 			client.options.renderDistance().set(2);
-			client.options.graphicsMode().set(GraphicsStatus.FAST);
 			client.options.entityShadows().set(false);
 			client.options.particles().set(ParticleStatus.MINIMAL);
 		});
 		try (TestSingleplayerContext singleplayer = context.worldBuilder().create()) {
-			singleplayer.getClientWorld().waitForChunksRender();
+			singleplayer.getConnection().waitForChunksRender();
 			// The arena grid spans about 90 blocks from the player and chunks beyond the view distance don't tick,
 			// so widen it once the world is up (rendering 10 chunks first would exceed the wait timeout).
 			context.runOnClient(client -> {

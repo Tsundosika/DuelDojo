@@ -78,7 +78,7 @@ final class Placement {
 		if (state.hi - state.lo <= 1 || state.played >= MAX_MATCHES) {
 			finish(player, state);
 		} else {
-			state.startAt = player.getServer().getTickCount() + BREAK;
+			state.startAt = player.level().getServer().getTickCount() + BREAK;
 			player.sendSystemMessage(Component.literal("Next placement match in " + BREAK / 20 + " s.").withStyle(ChatFormatting.GRAY));
 		}
 	}

@@ -1,15 +1,15 @@
 # Duel Dojo
 
-Sword PvP practice bots for Fabric 1.21.8. Pick a tier from LT5 to HT1 and 1v1 the bot in a small sky
+Sword PvP practice bots for Fabric 26.3. Pick a tier from LT5 to HT1 and 1v1 the bot in a small sky
 arena, either one fight or first to 10 like a tier test.
 
 ![Fighting the HT3 bot](docs/duel.png)
 
 ## Install
 
-You need Fabric Loader and [Fabric API](https://modrinth.com/mod/fabric-api) for 1.21.8. Put the jar from
+You need Fabric Loader and [Fabric API](https://modrinth.com/mod/fabric-api) for 26.3. Put the jar from
 [Releases](https://github.com/Tsundosika/DuelDojo/releases) in your mods folder, join a singleplayer world
-and type `/dojo`.
+and type `/dojo`. The 1.21.8 version lives on the `mc-1.21.8` branch.
 
 It's still a beta. If a tier feels too easy or too hard, open an issue and tell me your tier and what
 `/dojo stats` says.
@@ -42,6 +42,8 @@ charged, missing a lot, or letting the bot combo you. Each tip has a [Practice] 
 exactly that. While you fight, short notes above your hotbar tell you about early swings, whiffs, sprint hits
 and jump resets, and `/dojo stats` shows how those numbers change over your recent matches.
 
+![Tips after a match](docs/tips.png)
+
 <p>
   <img src="docs/arena.png" width="49%" alt="The arena above the clouds">
   <img src="docs/first-to-10.png" width="49%" alt="Countdown before a first to 10">
@@ -73,7 +75,7 @@ you want to tune them.
 
 ## Building
 
-`./gradlew build` (Gradle needs JDK 25, the mod itself runs on Java 21). The jar ends up in `build/libs`.
+`./gradlew build` (needs JDK 25). The jar ends up in `build/libs`.
 
 ## License
 

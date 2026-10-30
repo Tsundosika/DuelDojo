@@ -11,7 +11,7 @@ import net.minecraft.core.Registry;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.resources.ResourceKey;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.MobCategory;
 import org.slf4j.Logger;
@@ -22,7 +22,7 @@ public class DuelDojo implements ModInitializer {
 	public static final Logger LOGGER = LoggerFactory.getLogger(MOD_ID);
 
 	public static final ResourceKey<EntityType<?>> BOT_KEY =
-			ResourceKey.create(Registries.ENTITY_TYPE, ResourceLocation.fromNamespaceAndPath(MOD_ID, "dojo_bot"));
+			ResourceKey.create(Registries.ENTITY_TYPE, Identifier.fromNamespaceAndPath(MOD_ID, "dojo_bot"));
 
 	public static final EntityType<BotEntity> BOT = Registry.register(BuiltInRegistries.ENTITY_TYPE, BOT_KEY,
 			EntityType.Builder.<BotEntity>of(BotEntity::new, MobCategory.MISC)

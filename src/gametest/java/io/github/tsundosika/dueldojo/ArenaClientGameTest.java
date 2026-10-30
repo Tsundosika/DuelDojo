@@ -38,7 +38,7 @@ public class ArenaClientGameTest implements FabricClientGameTest {
 	public void runTest(ClientGameTestContext context) {
 		if ("0".equals(System.getenv("DUELDOJO_ARENA_TEST"))) return;
 		try (TestSingleplayerContext singleplayer = context.worldBuilder().create()) {
-			singleplayer.getClientWorld().waitForChunksRender();
+			singleplayer.getConnection().waitForChunksRender();
 			TestServerContext server = singleplayer.getServer();
 
 			// 1. A normal first-to-2 duel.
@@ -58,7 +58,7 @@ public class ArenaClientGameTest implements FabricClientGameTest {
 				check(player.level().getBlockState(player.blockPosition()).getBlock() instanceof SlabBlock, "you stand on the mat floor");
 				check(player.getMainHandItem().is(Items.DIAMOND_SWORD), "you got the kit");
 				check(player.getAttributeValue(Attributes.MOVEMENT_SPEED) == 0.0, "you are frozen during the countdown");
-				check(player.getTags().contains(TAG) && Files.exists(DuelRecovery.file(player)), "the crash-recovery file and tag exist");
+				check(player.entityTags().contains(TAG) && Files.exists(DuelRecovery.file(player)), "the crash-recovery file and tag exist");
 				return player.blockPosition();
 			});
 			context.waitTicks(70);
@@ -70,7 +70,7 @@ public class ArenaClientGameTest implements FabricClientGameTest {
 				checkOwnItemsBack(player);
 				check(player.getAttributeValue(Attributes.MOVEMENT_SPEED) > 0.0, "you are not frozen");
 				check(player.level().getBlockState(floor).isAir(), "the arena was taken down");
-				check(!player.getTags().contains(TAG) && !Files.exists(DuelRecovery.file(player)), "the crash-recovery file and tag are gone");
+				check(!player.entityTags().contains(TAG) && !Files.exists(DuelRecovery.file(player)), "the crash-recovery file and tag are gone");
 				check(((ServerLevel) player.level()).getEntities(DuelDojo.BOT, e -> true).isEmpty(), "the bot is gone");
 				check(DuelStats.get(player.getUUID(), Tier.HT1)[DuelStats.LOSSES] >= 2, "both lost rounds were recorded");
 			});
@@ -86,7 +86,7 @@ public class ArenaClientGameTest implements FabricClientGameTest {
 				checkOwnItemsBack(player);
 				check(player.getAttributeValue(Attributes.MOVEMENT_SPEED) > 0.0, "recovery: you are not frozen");
 				check(player.level().getBlockState(arenaFloor).isAir(), "recovery: the arena was taken down");
-				check(!player.getTags().contains(TAG) && !Files.exists(DuelRecovery.file(player)), "recovery: file and tag are gone");
+				check(!player.entityTags().contains(TAG) && !Files.exists(DuelRecovery.file(player)), "recovery: file and tag are gone");
 			});
 
 			// 3. Same, but the last save was from before the duel (no tag): your saved state is left alone.

@@ -14,8 +14,9 @@ import java.util.UUID;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.ChatFormatting;
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.FontDescription;
 import net.minecraft.network.chat.MutableComponent;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.scores.PlayerTeam;
@@ -32,7 +33,7 @@ final class PlayerRanks {
 	 * assets/dueldojo/font/icons.json: one character, U+E000, drawn with the game's own diamond sword item texture
 	 * (taken from the game at runtime, so it also follows resource packs).
 	 */
-	private static final ResourceLocation ICON_FONT = ResourceLocation.fromNamespaceAndPath(DuelDojo.MOD_ID, "icons");
+	private static final FontDescription ICON_FONT = new FontDescription.Resource(Identifier.fromNamespaceAndPath(DuelDojo.MOD_ID, "icons"));
 	static final String SWORD_ICON = "";
 
 	private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
@@ -101,7 +102,7 @@ final class PlayerRanks {
 	 * team that isn't ours: a player can only be on one, so their rank can't show then.
 	 */
 	static boolean apply(ServerPlayer player) {
-		MinecraftServer server = player.getServer();
+		MinecraftServer server = player.level().getServer();
 		if (server == null) return true;
 		Scoreboard board = server.getScoreboard();
 		String name = player.getScoreboardName();

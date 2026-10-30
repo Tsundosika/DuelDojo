@@ -64,7 +64,7 @@ final class DuelRecovery {
 				player.sendSystemMessage(Component.literal("Your last duel was cut off when the game closed. Your items and position are back.")
 						.withStyle(ChatFormatting.GRAY));
 			}
-			in.child("arena").ifPresent(arena -> DuelArena.load(arena).remove(player.getServer()));
+			in.child("arena").ifPresent(arena -> DuelArena.load(arena).remove(player.level().getServer()));
 		} catch (IOException | RuntimeException e) {
 			DuelDojo.LOGGER.warn("Could not undo the interrupted duel from {}", file, e);
 		}
@@ -72,7 +72,7 @@ final class DuelRecovery {
 	}
 
 	static Path file(ServerPlayer player) {
-		return player.getServer().getWorldPath(LevelResource.ROOT).resolve("dueldojo").resolve(player.getUUID() + ".dat");
+		return player.level().getServer().getWorldPath(LevelResource.ROOT).resolve("dueldojo").resolve(player.getUUID() + ".dat");
 	}
 
 	private static void delete(Path file) {

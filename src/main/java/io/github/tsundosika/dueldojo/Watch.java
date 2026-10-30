@@ -82,7 +82,7 @@ final class Watch {
 			player.sendSystemMessage(Component.literal("Finish or /dojo stop what you're doing first.").withStyle(ChatFormatting.RED));
 			return;
 		}
-		MinecraftServer server = player.getServer();
+		MinecraftServer server = player.level().getServer();
 		ServerLevel level = (ServerLevel) player.level();
 		DuelArena arena = DuelArena.build(level, player.blockPosition());
 		if (arena == null) {
@@ -97,7 +97,7 @@ final class Watch {
 		BotEntity b = new BotEntity(DuelDojo.BOT, level);
 		a.setup(tierA, b);
 		b.setup(tierB, a);
-		ServerBossEvent bar = new ServerBossEvent(Component.empty(), BossEvent.BossBarColor.WHITE, BossEvent.BossBarOverlay.PROGRESS);
+		ServerBossEvent bar = new ServerBossEvent(UUID.randomUUID(), Component.empty(), BossEvent.BossBarColor.WHITE, BossEvent.BossBarOverlay.PROGRESS);
 		float previousRate = server.tickRateManager().tickrate();
 		Session session = new Session(player, snapshot, arena, a, b, tierA, tierB, speed, previousRate, bar);
 		place(session);
@@ -166,8 +166,8 @@ final class Watch {
 			for (int i = 0; i < TECHNIQUES.length; i++) {
 				Tier who = nowA[i] > session.lastA[i] ? session.tierA : nowB[i] > session.lastB[i] ? session.tierB : null;
 				if (who == null) continue;
-				session.player.displayClientMessage(DuelManager.tierName(who)
-						.append(Component.literal(": " + TECHNIQUES[i]).withStyle(ChatFormatting.WHITE)), true);
+				session.player.sendOverlayMessage(DuelManager.tierName(who)
+						.append(Component.literal(": " + TECHNIQUES[i]).withStyle(ChatFormatting.WHITE)));
 				session.calloutWait = CALLOUT_GAP;
 				break;
 			}
@@ -227,7 +227,7 @@ final class Watch {
 		session.a.discard();
 		session.b.discard();
 		session.bar.removeAllPlayers();
-		MinecraftServer server = player.getServer();
+		MinecraftServer server = player.level().getServer();
 		if (server != null) {
 			server.tickRateManager().setTickRate(session.previousRate);
 			session.arena.remove(server);

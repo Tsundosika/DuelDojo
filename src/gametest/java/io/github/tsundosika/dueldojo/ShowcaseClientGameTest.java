@@ -8,7 +8,8 @@ import net.fabricmc.fabric.api.client.gametest.v1.context.TestSingleplayerContex
 import net.fabricmc.fabric.api.client.gametest.v1.screenshot.TestScreenshotOptions;
 import net.minecraft.client.CameraType;
 import net.minecraft.client.CloudStatus;
-import net.minecraft.client.GraphicsStatus;
+import net.minecraft.client.GraphicsPreset;
+import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ParticleStatus;
@@ -17,8 +18,8 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.player.ChatVisiblity;
-import net.minecraft.world.level.GameRules;
 import net.minecraft.world.level.GameType;
+import net.minecraft.world.level.gamerules.GameRules;
 import net.minecraft.world.phys.Vec3;
 
 /**
@@ -34,24 +35,22 @@ public class ShowcaseClientGameTest implements FabricClientGameTest {
 	public void runTest(ClientGameTestContext context) {
 		if (!"1".equals(System.getenv("DUELDOJO_SHOWCASE"))) return;
 		context.getInput().resizeWindow(WIDTH, HEIGHT);
-		context.runOnClient(client -> {
-			client.options.graphicsMode().set(GraphicsStatus.FANCY);
-			client.options.cloudStatus().set(CloudStatus.FANCY);
-			client.options.particles().set(ParticleStatus.ALL);
-			client.options.fov().set(80);
-		});
+		context.runOnClient(client -> client.options.fov().set(80));
 		try (TestSingleplayerContext singleplayer = context.worldBuilder().create()) {
-			singleplayer.getClientWorld().waitForChunksRender();
-			// Only now: a bigger view distance before the world is up makes the first chunk wait time out.
-			context.runOnClient(client -> client.options.renderDistance().set(8));
-			TestServerContext server = singleplayer.getServer();
-			Vec3 ground = server.computeOnServer(s -> {
-				ServerLevel level = s.overworld();
-				level.getGameRules().getRule(GameRules.RULE_DAYLIGHT).set(false, s);
-				level.setDayTime(6000);
-				level.setWeatherParameters(24000, 0, false, false);
-				return player(s).position();
+			singleplayer.getConnection().waitForChunksRender();
+			// Only now: a bigger view distance before the world is up (the preset sets one too) makes the first
+			// chunk wait time out.
+			context.runOnClient(client -> {
+				client.options.graphicsPreset().set(GraphicsPreset.FANCY);
+				client.options.cloudStatus().set(CloudStatus.FANCY);
+				client.options.particles().set(ParticleStatus.ALL);
+				client.options.renderDistance().set(8);
 			});
+			TestServerContext server = singleplayer.getServer();
+			server.runOnServer(s -> s.overworld().getGameRules().set(GameRules.ADVANCE_TIME, false, s));
+			server.runCommand("time set noon");
+			server.runCommand("weather clear");
+			Vec3 ground = server.computeOnServer(s -> player(s).position());
 
 			// 1. Two bots fighting in the arena, watched from outside.
 			DuelArena arena = server.computeOnServer(s -> {
@@ -72,7 +71,7 @@ public class ShowcaseClientGameTest implements FabricClientGameTest {
 				player.setGameMode(GameType.SPECTATOR);
 				return built;
 			});
-			context.runOnClient(client -> client.options.hideGui = true);
+			context.runOnClient(client -> setHudHidden(client, true));
 			Vec3 center = Vec3.atBottomCenterOf(arena.center);
 			look(server, center.add(-17.0, 11.0, -17.0), center.add(0.0, 1.0, 0.0));
 			context.waitTicks(10);
@@ -96,34 +95,35 @@ public class ShowcaseClientGameTest implements FabricClientGameTest {
 			// 2. A duel from your own view, fighting back whenever the sword is charged and the bot is in reach.
 			// Chat and the advancement pop-up for the diamond kit are kept out of the pictures.
 			context.runOnClient(client -> {
-				client.options.hideGui = false;
+				setHudHidden(client, false);
 				client.options.chatVisibility().set(ChatVisiblity.HIDDEN);
 			});
 			server.runOnServer(s -> DuelManager.start(player(s), Tier.HT3, 10, true));
 			for (int i = 0; i < 60; i++) {
 				aimAndSwing(context);
 				context.waitTicks(3);
-				context.runOnClient(client -> client.getToastManager().clear());
+				context.runOnClient(client -> client.gui.toastManager().clear());
 				shot(context, "duel-" + i);
 			}
 			server.runOnServer(s -> DuelManager.stop(player(s)));
 
-			// 3. A finished single fight (you don't fight back this time) for the round message and the tips in chat,
-			// then your rank above your head in third person.
+			// 3. A finished single fight for the round message and the tips in chat, then your rank above your head
+			// in third person.
 			server.runOnServer(s -> PlayerRanks.set(player(s), Tier.LT3));
 			context.runOnClient(client -> client.options.chatVisibility().set(ChatVisiblity.FULL));
-			server.runOnServer(s -> DuelManager.start(player(s), Tier.HT1, 1, true));
-			for (int waited = 0; waited < 20 * 90 && server.computeOnServer(s -> DuelManager.inDuel(player(s))); waited += 10) {
-				context.waitTicks(10);
+			server.runOnServer(s -> DuelManager.start(player(s), Tier.LT3, 1, true));
+			for (int waited = 0; waited < 20 * 90 && server.computeOnServer(s -> DuelManager.inDuel(player(s))); waited += 3) {
+				aimAndSwing(context);
+				context.waitTicks(3);
 			}
-			context.waitTicks(10);
-			context.runOnClient(client -> client.getToastManager().clear());
+			context.waitTicks(50); // the VICTORY / DEFEAT title fades first
+			context.runOnClient(client -> client.gui.toastManager().clear());
 			shot(context, "chat-after-match");
 			context.runOnClient(client -> {
 				client.options.chatVisibility().set(ChatVisiblity.HIDDEN);
 				client.options.setCameraType(CameraType.THIRD_PERSON_BACK);
 			});
-			context.waitTicks(40); // the DEFEAT title fades first
+			context.waitTicks(10);
 			shot(context, "rank-third-person");
 			context.runOnClient(client -> client.options.setCameraType(CameraType.FIRST_PERSON));
 			server.runOnServer(s -> PlayerRanks.set(player(s), null));
@@ -171,6 +171,11 @@ public class ShowcaseClientGameTest implements FabricClientGameTest {
 			return target != null && target.getType() == DuelDojo.BOT && client.player.getAttackStrengthScale(0.0F) > 0.95F;
 		});
 		if (hit) context.getInput().pressKey(options -> options.keyAttack);
+	}
+
+	/** F1: the HUD can only be toggled. */
+	private static void setHudHidden(Minecraft client, boolean hidden) {
+		if (client.gui.hud.isHidden() != hidden) client.gui.hud.toggle();
 	}
 
 	private static ServerPlayer player(MinecraftServer server) {

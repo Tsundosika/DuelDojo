@@ -17,6 +17,7 @@ import net.minecraft.commands.SharedSuggestionProvider;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.server.permissions.Permissions;
 
 /**
  * /dojo                      clickable tier menu
@@ -122,9 +123,9 @@ final class DojoCommand {
 
 	/** Simulations spawn many bots and speed up time: operators, or the owner of a single-player world. */
 	private static boolean mayTune(CommandSourceStack source) {
-		if (source.hasPermission(2)) return true;
+		if (source.permissions().hasPermission(Permissions.COMMANDS_GAMEMASTER)) return true;
 		ServerPlayer player = source.getPlayer();
-		return player != null && source.getServer().isSingleplayerOwner(player.getGameProfile());
+		return player != null && source.getServer().isSingleplayerOwner(player.nameAndId());
 	}
 
 	private static Tier tier(CommandContext<CommandSourceStack> ctx, String name) {

@@ -19,7 +19,8 @@ import net.minecraft.world.entity.ai.control.LookControl;
 import net.minecraft.world.entity.ai.control.MoveControl;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
-import net.minecraft.world.level.GameRules;
+import net.minecraft.world.damagesource.DamageSource;
+import net.minecraft.world.level.gamerules.GameRules;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
@@ -115,7 +116,7 @@ public class BotEntity extends PathfinderMob {
 		this.clearFire();
 		this.setDeltaMovement(Vec3.ZERO);
 		this.fallDistance = 0;
-		this.invulnerableTime = 0;
+		this.setInvulnerableTime(0);
 		this.hurtTime = 0;
 		this.food.reset();
 		this.attackStrengthTicker = 100;
@@ -164,13 +165,6 @@ public class BotEntity extends PathfinderMob {
 	}
 
 	@Override
-	public void aiStep() {
-		super.aiStep();
-		// Mobs other than monsters never advance their arm swing; players do, so the bot must too.
-		this.updateSwingTime();
-	}
-
-	@Override
 	public void tick() {
 		super.tick();
 		if (this.level().isClientSide()) return;
@@ -186,7 +180,7 @@ public class BotEntity extends PathfinderMob {
 		if (lastHealth >= 0 && this.getHealth() < lastHealth) food.exhaust(0.1F);
 		lastHealth = this.getHealth();
 		if (this.level() instanceof ServerLevel serverLevel) {
-			food.tick(this, serverLevel.getGameRules().getBoolean(GameRules.RULE_NATURAL_REGENERATION));
+			food.tick(this, serverLevel.getGameRules().get(GameRules.NATURAL_HEALTH_REGENERATION));
 		}
 	}
 
@@ -248,7 +242,7 @@ public class BotEntity extends PathfinderMob {
 
 	/** Swings exactly like a player would (Player#attack), including resetting the cooldown on a miss. */
 	public SwingResult swingAt(ServerLevel level, LivingEntity target) {
-		this.swing(InteractionHand.MAIN_HAND);
+		this.swing(InteractionHand.MAIN_HAND, this.getMainHandItem().getAttackAnimation(), false);
 		if (!crosshairOn(target)) {
 			this.attackStrengthTicker = 0;
 			return SwingResult.MISS;
@@ -263,7 +257,9 @@ public class BotEntity extends PathfinderMob {
 				&& !this.hasEffect(MobEffects.BLINDNESS) && !this.isPassenger() && !this.isSprinting();
 		if (crit) damage *= 1.5F;
 
-		boolean hurt = target.hurtServer(level, this.damageSources().mobAttack(this), damage);
+		DamageSource source = this.damageSources().mobAttack(this);
+		Vec3 targetMovement = target.getDeltaMovement();
+		boolean hurt = target.hurtServer(level, source, damage);
 		if (!hurt) {
 			level.playSound(null, this.getX(), this.getY(), this.getZ(), SoundEvents.PLAYER_ATTACK_NODAMAGE, this.getSoundSource(), 1.0F, 1.0F);
 			return SwingResult.MISS;
@@ -271,15 +267,14 @@ public class BotEntity extends PathfinderMob {
 		food.exhaust(0.1F);
 
 		if (sprintHit) {
-			float yaw = this.getYRot() * Mth.DEG_TO_RAD;
-			target.knockback(0.5, Mth.sin(yaw), -Mth.cos(yaw));
-			this.setDeltaMovement(this.getDeltaMovement().multiply(0.6, 1.0, 0.6));
+			// The player's own extra knockback: 0.5 on top, then the attacker slows to 60% (Player#attack does the same).
+			this.causeExtraKnockback(target, 0.5F, targetMovement, source, damage, true);
 			this.setSprinting(false);
 			level.playSound(null, this.getX(), this.getY(), this.getZ(), SoundEvents.PLAYER_ATTACK_KNOCKBACK, this.getSoundSource(), 1.0F, 1.0F);
 		}
 		if (crit) {
 			level.playSound(null, this.getX(), this.getY(), this.getZ(), SoundEvents.PLAYER_ATTACK_CRIT, this.getSoundSource(), 1.0F, 1.0F);
-			level.getChunkSource().broadcastAndSend(target, new ClientboundAnimatePacket(target, ClientboundAnimatePacket.CRITICAL_HIT));
+			level.getChunkSource().sendToTrackingPlayersAndSelf(target, new ClientboundAnimatePacket(target, ClientboundAnimatePacket.CRITICAL_HIT));
 			return SwingResult.CRIT;
 		}
 		if (!sprintHit) {

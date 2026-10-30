@@ -4,14 +4,12 @@ import com.mojang.blaze3d.vertex.PoseStack;
 import io.github.tsundosika.dueldojo.DuelDojo;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.rendering.v1.EntityRendererRegistry;
-import net.fabricmc.fabric.api.client.rendering.v1.WorldRenderContext;
-import net.fabricmc.fabric.api.client.rendering.v1.WorldRenderEvents;
+import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderContext;
+import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderEvents;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.Font;
 import net.minecraft.client.player.LocalPlayer;
-import net.minecraft.client.renderer.LightTexture;
-import net.minecraft.client.renderer.MultiBufferSource;
-import net.minecraft.network.chat.Component;
+import net.minecraft.client.renderer.state.level.CameraRenderState;
+import net.minecraft.util.LightCoordsUtil;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.scores.PlayerTeam;
 
@@ -22,37 +20,27 @@ public class DuelDojoClient implements ClientModInitializer {
 	@Override
 	public void onInitializeClient() {
 		EntityRendererRegistry.register(DuelDojo.BOT, BotRenderer::new);
-		WorldRenderEvents.AFTER_ENTITIES.register(DuelDojoClient::drawOwnRank);
+		LevelRenderEvents.COLLECT_SUBMITS.register(DuelDojoClient::drawOwnRank);
 	}
 
 	/**
-	 * The game never draws your own name tag, so in third person your rank ("[HT3] name") is drawn above your head
+	 * The game never draws your own name tag, so in third person your rank ("HT3 | name") is drawn above your head
 	 * here, the same way and at the same height as a name tag. Other players see it on your normal name tag.
 	 */
-	private static void drawOwnRank(WorldRenderContext context) {
+	private static void drawOwnRank(LevelRenderContext context) {
 		Minecraft minecraft = Minecraft.getInstance();
 		LocalPlayer player = minecraft.player;
-		if (player == null || minecraft.options.getCameraType().isFirstPerson() || minecraft.options.hideGui) return;
+		if (player == null || minecraft.options.getCameraType().isFirstPerson() || minecraft.gui.hud.isHidden()) return;
 		PlayerTeam team = player.getTeam();
 		if (team == null || !team.getName().startsWith(RANK_TEAM_PREFIX)) return;
-		PoseStack pose = context.matrixStack();
-		MultiBufferSource buffers = context.consumers();
-		if (pose == null || buffers == null) return;
 
-		float partialTick = context.tickCounter().getGameTimeDeltaPartialTick(true);
-		Vec3 camera = context.camera().getPosition();
-		Vec3 at = player.getPosition(partialTick).add(0.0, player.getBbHeight() + 0.5, 0.0);
-		Component label = player.getDisplayName();
-		Font font = minecraft.font;
-		float x = -font.width(label) / 2.0F;
-		int background = (int) (minecraft.options.getBackgroundOpacity(0.25F) * 255.0F) << 24;
-
+		CameraRenderState camera = context.levelState().cameraRenderState;
+		Vec3 at = player.getPosition(camera.cameraEntityPartialTicks).subtract(camera.pos);
+		PoseStack pose = context.poseStack();
 		pose.pushPose();
-		pose.translate(at.x - camera.x, at.y - camera.y, at.z - camera.z);
-		pose.mulPose(context.camera().rotation());
-		pose.scale(0.025F, -0.025F, 0.025F);
-		font.drawInBatch(label, x, 0.0F, 0x20FFFFFF, false, pose.last().pose(), buffers, Font.DisplayMode.SEE_THROUGH, background, LightTexture.FULL_BRIGHT);
-		font.drawInBatch(label, x, 0.0F, 0xFFFFFFFF, false, pose.last().pose(), buffers, Font.DisplayMode.NORMAL, 0, LightTexture.FULL_BRIGHT);
+		pose.translate(at.x, at.y, at.z);
+		context.submitNodeCollector().submitNameTag(pose, new Vec3(0.0, player.getBbHeight(), 0.0), 0, player.getDisplayName(),
+				!player.isDiscrete(), LightCoordsUtil.FULL_BRIGHT, camera);
 		pose.popPose();
 	}
 }

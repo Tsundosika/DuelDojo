@@ -6,7 +6,7 @@ import java.util.List;
 import java.util.Set;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.resources.ResourceKey;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.ItemStackWithSlot;
@@ -53,7 +53,7 @@ record PlayerSnapshot(List<ItemStack> items, GameType gameMode, float health, in
 		player.getFoodData().setFoodLevel(foodLevel);
 		player.getFoodData().setSaturation(saturation);
 		player.clearFire();
-		ServerLevel level = player.getServer().getLevel(dimension);
+		ServerLevel level = player.level().getServer().getLevel(dimension);
 		if (level != null) player.teleportTo(level, position.x, position.y, position.z, Set.of(), yRot, xRot, true);
 		player.setDeltaMovement(Vec3.ZERO);
 		player.resetFallDistance();
@@ -71,7 +71,7 @@ record PlayerSnapshot(List<ItemStack> items, GameType gameMode, float health, in
 		out.putFloat("saturation", saturation);
 		ValueOutput.TypedOutputList<MobEffectInstance> effectList = out.list("effects", MobEffectInstance.CODEC);
 		effects.forEach(effectList::add);
-		out.putString("dimension", dimension.location().toString());
+		out.putString("dimension", dimension.identifier().toString());
 		out.putDouble("x", position.x);
 		out.putDouble("y", position.y);
 		out.putDouble("z", position.z);
@@ -87,7 +87,7 @@ record PlayerSnapshot(List<ItemStack> items, GameType gameMode, float health, in
 		List<MobEffectInstance> effects = new ArrayList<>();
 		in.listOrEmpty("effects", MobEffectInstance.CODEC).forEach(effects::add);
 		ResourceKey<Level> dimension = ResourceKey.create(Registries.DIMENSION,
-				ResourceLocation.parse(in.getStringOr("dimension", Level.OVERWORLD.location().toString())));
+				Identifier.parse(in.getStringOr("dimension", Level.OVERWORLD.identifier().toString())));
 		return new PlayerSnapshot(items, GameType.byId(in.getIntOr("gameMode", 0)), in.getFloatOr("health", 20.0F),
 				in.getIntOr("food", 20), in.getFloatOr("saturation", 5.0F), effects, dimension,
 				new Vec3(in.getDoubleOr("x", 0.0), in.getDoubleOr("y", 0.0), in.getDoubleOr("z", 0.0)),

@@ -15,7 +15,7 @@ import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.network.protocol.game.ClientboundSetSubtitleTextPacket;
 import net.minecraft.network.protocol.game.ClientboundSetTitleTextPacket;
 import net.minecraft.network.protocol.game.ClientboundSetTitlesAnimationPacket;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerBossEvent;
 import net.minecraft.server.level.ServerLevel;
@@ -48,7 +48,7 @@ public final class DuelManager {
 	private static final double MAX_DISTANCE = 48.0;
 	/** Fighting where you stand: the bot starts this far in front of you. */
 	private static final double HERE_DISTANCE = 6.0;
-	private static final ResourceLocation FREEZE = ResourceLocation.fromNamespaceAndPath(DuelDojo.MOD_ID, "countdown_freeze");
+	private static final Identifier FREEZE = Identifier.fromNamespaceAndPath(DuelDojo.MOD_ID, "countdown_freeze");
 	private static final Map<UUID, Duel> DUELS = new HashMap<>();
 
 	private DuelManager() {
@@ -168,7 +168,7 @@ public final class DuelManager {
 		resetFighters(duel);
 
 		if (drill != null) {
-			duel.bar = new ServerBossEvent(Component.literal(drill.title + " drill"), BossEvent.BossBarColor.YELLOW, BossEvent.BossBarOverlay.PROGRESS);
+			duel.bar = new ServerBossEvent(UUID.randomUUID(), Component.literal(drill.title + " drill"), BossEvent.BossBarColor.YELLOW, BossEvent.BossBarOverlay.PROGRESS);
 			duel.bar.addPlayer(player);
 			player.sendSystemMessage(Component.literal(drill.title + " drill vs ").withStyle(ChatFormatting.GOLD).append(tierName(tier))
 					.append(Component.literal(" bot, " + Drill.SECONDS + " s: ").withStyle(ChatFormatting.GOLD))
@@ -224,7 +224,7 @@ public final class DuelManager {
 		FightStats stats = new FightStats();
 		ServerPlayer player = duel.player;
 		if (duel.drill != null || !PlayerData.get(player.getUUID()).coachOff) {
-			stats.coach = note -> player.displayClientMessage(note, true);
+			stats.coach = note -> player.sendOverlayMessage(note);
 		}
 		return stats;
 	}
@@ -345,7 +345,7 @@ public final class DuelManager {
 		duel.finished = true;
 		DUELS.remove(duel.player.getUUID());
 		if (duel.bar != null) duel.bar.removeAllPlayers();
-		MinecraftServer server = duel.player.getServer();
+		MinecraftServer server = duel.player.level().getServer();
 		if (duel.bot.isAlive()) duel.bot.discard();
 		freeze(duel.player, false);
 		duel.snapshot.restore(duel.player);
@@ -520,12 +520,15 @@ public final class DuelManager {
 	}
 
 	static MutableComponent button(String label, ChatFormatting color, String command, String hover) {
-		return button(label, color.getColor(), command, hover);
+		return clickable(Component.literal(label).withStyle(color), command, hover);
 	}
 
 	static MutableComponent button(String label, int color, String command, String hover) {
-		return Component.literal(label).withStyle(style -> style.withColor(color)
-				.withClickEvent(new ClickEvent.RunCommand(command))
+		return clickable(Component.literal(label).withColor(color), command, hover);
+	}
+
+	private static MutableComponent clickable(MutableComponent text, String command, String hover) {
+		return text.withStyle(style -> style.withClickEvent(new ClickEvent.RunCommand(command))
 				.withHoverEvent(new HoverEvent.ShowText(Component.literal(hover))));
 	}
 
