@@ -33,6 +33,7 @@ public class DuelDojo implements ModInitializer {
 
 	@Override
 	public void onInitialize() {
+		TutorialNet.register();
 		FabricDefaultAttributeRegistry.register(BOT, BotEntity.createAttributes());
 		CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> DojoCommand.register(dispatcher));
 		ServerTickEvents.END_SERVER_TICK.register(DuelManager::tick);

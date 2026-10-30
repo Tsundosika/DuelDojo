@@ -1,9 +1,15 @@
 package io.github.tsundosika.dueldojo.client;
 
 import com.mojang.blaze3d.vertex.PoseStack;
+import io.github.tsundosika.dueldojo.Drill;
 import io.github.tsundosika.dueldojo.DuelDojo;
+import io.github.tsundosika.dueldojo.TutorialNet;
 import net.fabricmc.api.ClientModInitializer;
+import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
+import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.fabricmc.fabric.api.client.rendering.v1.EntityRendererRegistry;
+import net.fabricmc.fabric.api.client.rendering.v1.SpecialGuiElementRegistry;
+import net.fabricmc.fabric.api.client.rendering.v1.hud.HudElementRegistry;
 import net.fabricmc.fabric.api.client.rendering.v1.WorldRenderContext;
 import net.fabricmc.fabric.api.client.rendering.v1.WorldRenderEvents;
 import net.minecraft.client.Minecraft;
@@ -12,6 +18,7 @@ import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.client.renderer.LightTexture;
 import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.network.chat.Component;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.scores.PlayerTeam;
 
@@ -23,6 +30,12 @@ public class DuelDojoClient implements ClientModInitializer {
 	public void onInitializeClient() {
 		EntityRendererRegistry.register(DuelDojo.BOT, BotRenderer::new);
 		WorldRenderEvents.AFTER_ENTITIES.register(DuelDojoClient::drawOwnRank);
+		SpecialGuiElementRegistry.register(context -> new DemoStage.Renderer(context.vertexConsumers(), context.client().getEntityRenderDispatcher()));
+		HudElementRegistry.addLast(ResourceLocation.fromNamespaceAndPath(DuelDojo.MOD_ID, "tutorial"), TutorialHud::extract);
+		ClientPlayNetworking.registerGlobalReceiver(TutorialNet.Open.TYPE, (payload, context) ->
+				context.client().setScreen(new DrillTutorialScreen(Drill.values()[payload.drill()], true)));
+		ClientPlayNetworking.registerGlobalReceiver(TutorialNet.Hud.TYPE, (payload, context) -> TutorialHud.set(payload));
+		ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> TutorialHud.set(TutorialNet.Hud.HIDDEN));
 	}
 
 	/**

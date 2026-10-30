@@ -129,7 +129,7 @@ public class ShowcaseClientGameTest implements FabricClientGameTest {
 			server.runOnServer(s -> PlayerRanks.set(player(s), null));
 
 			// 4. A drill: the live score in the boss bar and the coach's notes above the hotbar.
-			server.runOnServer(s -> DuelManager.startDrill(player(s), Drill.TIMING, Tier.LT3));
+			server.runOnServer(s -> DuelManager.startDrill(player(s), Drill.TIMING, Tier.LT3, false));
 			context.waitTicks(70);
 			for (int i = 0; i < 30; i++) {
 				aimAndSwing(context);
@@ -150,7 +150,7 @@ public class ShowcaseClientGameTest implements FabricClientGameTest {
 	}
 
 	/** Looks at the nearest bot and swings when the sword is charged and the crosshair is on it. */
-	private static void aimAndSwing(ClientGameTestContext context) {
+	static void aimAndSwing(ClientGameTestContext context) {
 		context.runOnClient(client -> {
 			LocalPlayer player = client.player;
 			Entity bot = null;

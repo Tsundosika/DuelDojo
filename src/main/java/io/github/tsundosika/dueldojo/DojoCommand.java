@@ -24,7 +24,7 @@ import net.minecraft.server.level.ServerPlayer;
  *                            "here" fights where you stand instead
  * /dojo stats                your record per tier (rounds)
  * /dojo rank [tier|clear]    show / set / remove your own tier, shown before your name
- * /dojo drill [name] [tier]  practice drills (timing, aim, reach, combo, wtap, crit), 45 s each
+ * /dojo drill [name] [tier] [quick]  practice drills, 45 s each, after a tutorial (quick: without it)
  * /dojo coach [on|off]       live notes above the hotbar while you fight
  * /dojo placement            up to 4 first-to-3 matches that find which tier you play like
  * /dojo watch <a> <b> [speed] watch two bots fight in slow motion as a spectator (operators / world owner)
@@ -69,11 +69,14 @@ final class DojoCommand {
 						.executes(ctx -> drillMenu(ctx.getSource().getPlayerOrException()))
 						.then(Commands.argument("drill", StringArgumentType.word())
 								.suggests((ctx, builder) -> SharedSuggestionProvider.suggest(Arrays.stream(Drill.values()).map(Drill::id), builder))
-								.executes(ctx -> startDrill(ctx, null))
+								.executes(ctx -> startDrill(ctx, null, true))
 								.then(tierArgument("tier").executes(ctx -> {
 									Tier tier = tier(ctx, "tier");
-									return tier == null ? 0 : startDrill(ctx, tier);
-								}))))
+									return tier == null ? 0 : startDrill(ctx, tier, true);
+								}).then(Commands.literal("quick").executes(ctx -> {
+									Tier tier = tier(ctx, "tier");
+									return tier == null ? 0 : startDrill(ctx, tier, false);
+								})))))
 				.then(Commands.literal("coach")
 						.executes(ctx -> setCoach(ctx.getSource().getPlayerOrException(), null))
 						.then(Commands.literal("on").executes(ctx -> setCoach(ctx.getSource().getPlayerOrException(), true)))
@@ -191,7 +194,7 @@ final class DojoCommand {
 	}
 
 	/** Drills are against your rank's tier, or LT3 if you haven't set one, unless a tier is given. */
-	private static int startDrill(CommandContext<CommandSourceStack> ctx, Tier tier) throws CommandSyntaxException {
+	private static int startDrill(CommandContext<CommandSourceStack> ctx, Tier tier, boolean tutorial) throws CommandSyntaxException {
 		ServerPlayer player = ctx.getSource().getPlayerOrException();
 		Drill drill = Drill.byId(StringArgumentType.getString(ctx, "drill"));
 		if (drill == null) {
@@ -202,7 +205,7 @@ final class DojoCommand {
 			Tier rank = PlayerRanks.get(player.getUUID());
 			tier = rank != null ? rank : Tier.LT3;
 		}
-		DuelManager.startDrill(player, drill, tier);
+		DuelManager.startDrill(player, drill, tier, tutorial);
 		return 1;
 	}
 

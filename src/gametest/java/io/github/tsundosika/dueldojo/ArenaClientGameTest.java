@@ -1,5 +1,7 @@
 package io.github.tsundosika.dueldojo;
 
+import com.mojang.blaze3d.platform.InputConstants;
+import io.github.tsundosika.dueldojo.client.DrillTutorialScreen;
 import java.lang.reflect.Field;
 import java.nio.file.Files;
 import java.util.ArrayList;
@@ -152,7 +154,15 @@ public class ArenaClientGameTest implements FabricClientGameTest {
 				other.landed(false, false, 1.0F, keys);
 				player.setLastClientInput(jump);
 				keys.tick(player);
-				check(keys.jumpResets == 1 && keys.hitsTaken == 1 && notes.contains("Jump reset ✓"), "a jump right as you're hit is a jump reset");
+				check(keys.jumpResets == 1 && keys.hitsTaken == 1 && keys.groundHitsTaken == 1 && notes.contains("Jump reset ✓"), "a jump right as you're hit is a jump reset");
+				player.setLastClientInput(idle);
+				keys.tick(player);
+				other.landed(false, false, 1.0F, keys);
+				keys.tick(player);
+				keys.tick(player);
+				player.setLastClientInput(jump);
+				keys.tick(player);
+				check(keys.jumpResets == 2, "a jump 2 ticks after the hit still counts: that's a press right when you see it");
 				player.setLastClientInput(idle);
 				keys.tick(player);
 				other.landed(false, false, 1.0F, keys);
@@ -161,7 +171,15 @@ public class ArenaClientGameTest implements FabricClientGameTest {
 				keys.tick(player);
 				player.setLastClientInput(jump);
 				keys.tick(player);
-				check(keys.lateJumps == 1 && notes.contains("Jump reset 3 ticks late"), "a jump 3 ticks after the hit is late");
+				check(keys.lateJumps == 1 && notes.contains("Jump reset 1 tick late"), "a jump 3 ticks after the hit is late");
+				player.setLastClientInput(idle);
+				player.setOnGround(false);
+				keys.tick(player);
+				other.landed(false, false, 1.0F, keys);
+				player.setLastClientInput(jump);
+				keys.tick(player);
+				player.setOnGround(true);
+				check(keys.groundHitsTaken == 3 && keys.hitsTaken == 4 && keys.jumpResets == 2, "a hit in the air doesn't count for or against you");
 				player.setLastClientInput(walk);
 				keys.tick(player);
 				keys.landed(false, true, 1.0F, other);
@@ -199,7 +217,7 @@ public class ArenaClientGameTest implements FabricClientGameTest {
 				player.setGameMode(GameType.SURVIVAL);
 				player.getInventory().clearContent();
 				player.getInventory().setItem(0, new ItemStack(Items.APPLE, 7));
-				DuelManager.startDrill(player, Drill.TIMING, Tier.HT1);
+				DuelManager.startDrill(player, Drill.TIMING, Tier.HT1, false);
 			});
 			context.waitTicks(20 * 15);
 			server.runOnServer(s -> {
@@ -241,6 +259,76 @@ public class ArenaClientGameTest implements FabricClientGameTest {
 				check(player.position().distanceTo(before) < 0.5, "and your place");
 				check(((ServerLevel) player.level()).getEntities(DuelDojo.BOT, e -> true).isEmpty(), "and the bots are gone");
 				checkOwnItemsBack(player);
+			});
+			// 11. A drill's tutorial: the window holds everything still and closing it starts "try it"; doing what it
+			// asks starts the real drill. This runs with real key presses, so it also shows they can be done in time.
+			for (Drill drill : Drill.values()) {
+				DrillGuide guide = DrillGuide.of(drill);
+				check(!guide.pages.isEmpty() && guide.goal > 0 && !guide.hints.isEmpty() && !guide.objective.isEmpty(), drill.title + " has a tutorial");
+			}
+			server.runOnServer(s -> DuelManager.startDrill(player(s), Drill.TIMING, Tier.LT5, true));
+			context.waitFor(client -> client.screen instanceof DrillTutorialScreen);
+			server.runOnServer(s -> check("WINDOW".equals(DuelManager.stage(player(s))), "the window comes first"));
+			context.runOnClient(client -> {
+				DrillTutorialScreen screen = (DrillTutorialScreen) client.screen;
+				screen.keyPressed(InputConstants.KEY_RETURN, 0, 0);
+				check(screen.page() == 1, "enter goes to the next page");
+				screen.keyPressed(InputConstants.KEY_RETURN, 0, 0);
+				check(client.screen == null, "on the last page it closes the window");
+			});
+			waitUntil(context, server, s -> "TRY".equals(DuelManager.stage(player(s))), 100, "try it to start");
+			for (int waited = 0; waited < 20 * 30 && server.computeOnServer(s -> "TRY".equals(DuelManager.stage(player(s)))); waited += 3) {
+				ShowcaseClientGameTest.aimAndSwing(context);
+				context.waitTicks(3);
+			}
+			server.runOnServer(s -> check("RUN".equals(DuelManager.stage(player(s))), "three full-charge swings finish try it"));
+			server.runOnServer(s -> DuelManager.stop(player(s)));
+
+			// A jump pressed as the hit lands has to count, in the slowed-down "try it" of the combo drill.
+			server.runOnServer(s -> DuelManager.startDrill(player(s), Drill.COMBO, Tier.HT1, true));
+			context.waitFor(client -> client.screen instanceof DrillTutorialScreen);
+			context.runOnClient(client -> client.screen.onClose());
+			waitUntil(context, server, s -> "TRY".equals(DuelManager.stage(player(s))), 100, "try it to start");
+			server.runOnServer(s -> check(s.tickRateManager().tickrate() == 10.0F, "the combo try-it runs at half speed"));
+			int presses = 0;
+			int lastHurt = 0;
+			for (int waited = 0; waited < 20 * 90 && server.computeOnServer(s -> "TRY".equals(DuelManager.stage(player(s)))); waited++) {
+				int hurt = server.computeOnServer(s -> player(s).hurtTime);
+				if (hurt > lastHurt) {
+					// As long as a real key press: a press and release can fall in one server tick, which it can't see.
+					context.getInput().holdKey(options -> options.keyJump);
+					context.waitTicks(3);
+					context.getInput().releaseKey(options -> options.keyJump);
+					waited += 3;
+					presses++;
+				} else {
+					context.waitTick();
+				}
+				lastHurt = hurt;
+			}
+			int pressed = presses;
+			server.runOnServer(s -> {
+				check("RUN".equals(DuelManager.stage(player(s))), "jumps as the hit shows up are jump resets (" + pressed + " presses for 2 resets)");
+				check(s.tickRateManager().tickrate() == 20.0F, "the speed is back for the real drill");
+				DuelManager.stop(player(s));
+			});
+
+			// Skipping: holding Shift in "try it", and the window's Skip button.
+			server.runOnServer(s -> DuelManager.startDrill(player(s), Drill.REACH, Tier.LT5, true));
+			context.waitFor(client -> client.screen instanceof DrillTutorialScreen);
+			context.runOnClient(client -> client.screen.onClose());
+			waitUntil(context, server, s -> "TRY".equals(DuelManager.stage(player(s))), 100, "try it to start");
+			context.getInput().holdKey(options -> options.keyShift);
+			waitUntil(context, server, s -> "RUN".equals(DuelManager.stage(player(s))), 100, "holding shift to skip try it");
+			context.getInput().releaseKey(options -> options.keyShift);
+			server.runOnServer(s -> DuelManager.stop(player(s)));
+			server.runOnServer(s -> DuelManager.startDrill(player(s), Drill.DODGE, Tier.LT5, true));
+			context.waitFor(client -> client.screen instanceof DrillTutorialScreen);
+			context.runOnClient(client -> ((DrillTutorialScreen) client.screen).skip());
+			waitUntil(context, server, s -> "RUN".equals(DuelManager.stage(player(s))), 100, "the window's skip button");
+			server.runOnServer(s -> {
+				DuelManager.stop(player(s));
+				checkOwnItemsBack(player(s));
 			});
 			DuelDojo.LOGGER.info("[arena test] all checks passed");
 		}

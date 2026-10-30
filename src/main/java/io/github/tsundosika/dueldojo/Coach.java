@@ -36,8 +36,8 @@ final class Coach {
 		if (bot.bestCombo >= 3) {
 			tips.add(new Tip("Took " + bot.bestCombo + " hits in a row: back off or jump-reset",
 					"After you get hit, back off, or jump just as the hit lands (jump reset) to take less knockback, instead"
-							+ " of walking straight back in. You jump-reset " + you.jumpResets + " of the " + you.hitsTaken
-							+ " hits you took in time" + (you.lateJumps > 0 ? ", " + you.lateJumps + " too late." : "."),
+							+ " of walking straight back in. You jump-reset " + you.jumpResets + " of the " + you.groundHitsTaken
+							+ " hits you took on the ground in time" + (you.lateJumps > 0 ? ", " + you.lateJumps + " too late." : "."),
 					Drill.COMBO));
 		}
 		if (you.hits >= 5 && you.sprintHits * 100 < you.hits * 40) {
