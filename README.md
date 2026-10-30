@@ -21,6 +21,11 @@ It's still a beta. If a tier feels too easy or too hard, open an issue and tell 
 - `/dojo lt3 10` - first to 10
 - `/dojo lt3 here` - fight right where you stand instead of in the arena
 - `/dojo stats` - your wins and losses per tier
+- `/dojo rank ht3` - put your own tier before your name, in chat and above your head (`/dojo rank clear` removes it)
+- `/dojo drill` - 45 second drills for one skill each: timing, aim, reach, combo escape, W-tap, crits, spacing, dodging
+- `/dojo placement` - a few matches that find which tier you play like
+- `/dojo coach` - turn the live notes above your hotbar on or off
+- `/dojo watch ht1 ht2` - watch two bots fight at half speed as a spectator, with their techniques named as they use them (`0.25` at the end for quarter speed)
 - `/dojo stop` - give up
 - `/dojo ladder` and `/dojo sim lt3 ht3` - bots fight each other (ops only)
 - `/dojo reload` - reload the config (ops only)
@@ -31,14 +36,23 @@ You and the bot both get full diamond armor and a diamond sword. The arena is bu
 above you (only in empty air) and removed after the duel, and you get your items and position back, even if
 the game crashes mid-duel.
 
+Bots show their health under their name. After every round the chat tells you how much health the winner had
+left, and after every match you get up to three tips from your own numbers, like swinging before your sword is
+charged, missing a lot, or letting the bot combo you. Each tip has a [Practice] button that starts a drill for
+exactly that. While you fight, short notes above your hotbar tell you about early swings, whiffs, sprint hits
+and jump resets, and `/dojo stats` shows how those numbers change over your recent matches.
+
 <p>
   <img src="docs/arena.png" width="49%" alt="The arena above the clouds">
   <img src="docs/first-to-10.png" width="49%" alt="Countdown before a first to 10">
 </p>
 
 Every bot has the same health and kit. The tier only changes how it plays: reaction time, aim, hit timing,
-spacing, strafing, W-taps, crits, jump resets and reading your cooldown. Bots follow normal player rules
-(3 block reach, 1.9 cooldown, player movement), and the mod doesn't give you anything for multiplayer.
+spacing, strafing, W-taps, crits, jump resets and reading your cooldown. From the middle tiers up they also
+read you: they switch strafe direction when your aim catches up, fake an approach so you swing at air, wait
+at the edge of your reach for you to step in, and try to knock you into the walls. Bots follow normal player
+rules (3 block reach, 1.9 cooldown, player movement, the same delay seeing you that a person has), and the
+mod doesn't give you anything for multiplayer.
 
 | Tier | Plays like |
 |---|---|
@@ -47,9 +61,9 @@ spacing, strafing, W-taps, crits, jump resets and reading your cooldown. Bots fo
 | LT4 | Better timing, starts strafing and W-tapping |
 | HT4 | Keeps some distance, starts reading your cooldown |
 | LT3 | Solid basics: strafes, W-taps, crits |
-| HT3 | Punishes your early swings |
-| LT2 | Clean aim, rarely wastes a hit |
-| HT2 | Outspaces you |
+| HT3 | Punishes your early swings, starts juking your aim |
+| LT2 | Jukes, baits, waits for you to step in |
+| HT2 | Outspaces you and pushes you into walls |
 | LT1 | Almost top level |
 | HT1 | The best a human could do |
 

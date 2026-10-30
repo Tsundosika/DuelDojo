@@ -12,25 +12,26 @@ import java.util.Map;
 import java.util.function.Consumer;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.ChatFormatting;
+import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
-import net.minecraft.util.Mth;
 import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.entity.LivingEntity;
-import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.phys.Vec3;
 
 /**
  * Bot-vs-bot simulation, to check that the tiers are ordered and spaced like the real tier list.
- * Every pairing gets a small arena near where it was started, all arenas fight at the same time, and the
- * results are fitted to Elo-style ratings (Bradley-Terry) and compared with the spacing from {@link Calibration}.
- * Best run in a superflat world. Results: chat, the log, and dueldojo-ladder.txt in the game folder.
+ * Every pairing fights in the same sky arena as a duel ({@link DuelArena}, walls included, starting 16 blocks
+ * apart), built on a grid above where it was started and taken down afterwards. All arenas fight at the same time,
+ * and the results are fitted to Elo-style ratings (Bradley-Terry) and compared with the spacing from
+ * {@link Calibration}. Results: chat, the log, and dueldojo-ladder.txt in the game folder.
  */
 public final class BotSim {
 	private static final int ROUND_LIMIT = 2400; // 2 minutes, then the round is a draw
 	private static final int PAUSE = 20;
-	private static final double ARENA_SPACING = 20.0;
+	/** Arenas are 33 blocks wide, walls included. */
+	private static final double ARENA_SPACING = 36.0;
 	private static final double MAX_WANDER = 30.0;
 
 	private static Run run;
@@ -43,6 +44,7 @@ public final class BotSim {
 	private static final class Arena {
 		final Tier a;
 		final Tier b;
+		final DuelArena dojo;
 		final Vec3 center;
 		final BotEntity botA;
 		final BotEntity botB;
@@ -58,10 +60,11 @@ public final class BotSim {
 		int fightTicks;
 		long totalTicks;
 
-		Arena(Tier a, Tier b, Vec3 center, BotEntity botA, BotEntity botB) {
+		Arena(Tier a, Tier b, DuelArena dojo, BotEntity botA, BotEntity botB) {
 			this.a = a;
 			this.b = b;
-			this.center = center;
+			this.dojo = dojo;
+			this.center = Vec3.atBottomCenterOf(dojo.center);
 			this.botA = botA;
 			this.botB = botB;
 		}
@@ -122,16 +125,25 @@ public final class BotSim {
 		int arenas = pairs.size() * copies;
 		int cols = (int) Math.ceil(Math.sqrt(arenas));
 		int rows = (int) Math.ceil(arenas / (double) cols);
+		List<DuelArena> dojos = new ArrayList<>();
 		for (int i = 0; i < arenas; i++) {
 			double x = center.x + (i % cols - (cols - 1) / 2.0) * ARENA_SPACING;
 			double z = center.z + (i / cols - (rows - 1) / 2.0) * ARENA_SPACING;
-			int ground = level.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, Mth.floor(x), Mth.floor(z));
+			DuelArena dojo = DuelArena.build(level, BlockPos.containing(x, center.y, z));
+			if (dojo == null) {
+				for (DuelArena built : dojos) built.remove(level.getServer());
+				out.accept(Component.literal("No room for the simulation arenas up in the sky here.").withStyle(ChatFormatting.RED));
+				return false;
+			}
+			dojos.add(dojo);
+		}
+		for (int i = 0; i < arenas; i++) {
 			BotEntity botA = new BotEntity(DuelDojo.BOT, level);
 			BotEntity botB = new BotEntity(DuelDojo.BOT, level);
 			Tier[] pair = pairs.get(i % pairs.size());
 			botA.setup(pair[0], botB);
 			botB.setup(pair[1], botA);
-			Arena arena = new Arena(pair[0], pair[1], new Vec3(x, ground, z), botA, botB);
+			Arena arena = new Arena(pair[0], pair[1], dojos.get(i), botA, botB);
 			place(arena);
 			level.addFreshEntity(botA);
 			level.addFreshEntity(botB);
@@ -145,13 +157,17 @@ public final class BotSim {
 		return true;
 	}
 
-	/** Puts both bots back at their marks with full health; the round starts after a short pause. */
+	/** Puts both bots back at their marks (16 blocks apart, as in a duel) with full health; the round starts after a short pause. */
 	private static void place(Arena arena) {
 		arena.botA.resetForRound();
 		arena.botB.resetForRound();
 		double jitter = (arena.botA.getRandom().nextDouble() - 0.5) * 1.0;
-		arena.botA.setPos(arena.center.x + jitter, arena.center.y, arena.center.z - 3.0);
-		arena.botB.setPos(arena.center.x - jitter, arena.center.y, arena.center.z + 3.0);
+		Vec3 a = arena.dojo.playerSpawn();
+		Vec3 b = arena.dojo.botSpawn();
+		arena.botA.setPos(a.x + jitter, a.y, a.z);
+		arena.botB.setPos(b.x - jitter, b.y, b.z);
+		arena.botA.setDeltaMovement(Vec3.ZERO);
+		arena.botB.setDeltaMovement(Vec3.ZERO);
 		face(arena.botA, 0.0F);
 		face(arena.botB, 180.0F);
 		arena.botA.setActive(false);
@@ -190,6 +206,8 @@ public final class BotSim {
 		for (Arena arena : old.arenas) {
 			arena.botA.discard();
 			arena.botB.discard();
+			MinecraftServer server = arena.botA.level().getServer();
+			if (server != null) arena.dojo.remove(server);
 		}
 		if (old.sprint && !old.arenas.isEmpty()) {
 			MinecraftServer server = old.arenas.get(0).botA.level().getServer();
@@ -303,9 +321,9 @@ public final class BotSim {
 		for (Arena arena : run.arenas) {
 			if (!arena.fighting) continue;
 			if (entity == arena.botA && source.getEntity() == arena.botB) {
-				arena.statsB.landed(FightStats.isCrit(source, baseDamage), damageTaken, arena.statsA);
+				arena.statsB.landed(FightStats.isCrit(source, baseDamage), arena.botB.isSprinting() && arena.statsB.charged(), damageTaken, arena.statsA);
 			} else if (entity == arena.botB && source.getEntity() == arena.botA) {
-				arena.statsA.landed(FightStats.isCrit(source, baseDamage), damageTaken, arena.statsB);
+				arena.statsA.landed(FightStats.isCrit(source, baseDamage), arena.botA.isSprinting() && arena.statsA.charged(), damageTaken, arena.statsB);
 			}
 		}
 	}
@@ -389,6 +407,16 @@ public final class BotSim {
 					percent(c.sprintHits, c.hits), percent(c.crits, c.hits), percent(c.critJumps, c.swings),
 					percent(c.critsAbandoned, c.critJumps), percent(c.wtaps, c.hits), percent(c.panicSwings, c.swings),
 					percent(c.strafeTicks, c.closeTicks), percent(c.jumpResets, c.hitsTaken)));
+		}
+		sb.append("Reading the opponent: jukes per minute close | baits per 100 swings, swings they drew, of those that still hit"
+				+ " | hit-select holds per 100 swings | opponent pinned to a wall / getting itself out (share of time close)\n");
+		for (Tier tier : Tier.values()) {
+			BotBrain.Counts c = byTier[tier.ordinal()];
+			if (c == null || c.swings == 0) continue;
+			sb.append(String.format(Locale.ROOT, "%s: %.1f | %d, %d, %d%% | %d | %.1f%% / %.1f%%%n", tier.id,
+					c.closeTicks == 0 ? 0.0 : c.jukes * 1200.0 / c.closeTicks, percent(c.baits, c.swings), c.baitSwings,
+					percent(c.baitHits, c.baitSwings), percent(c.holds, c.swings),
+					c.closeTicks == 0 ? 0.0 : 100.0 * c.pinTicks / c.closeTicks, c.closeTicks == 0 ? 0.0 : 100.0 * c.escapeTicks / c.closeTicks));
 		}
 		return sb.toString().trim();
 	}

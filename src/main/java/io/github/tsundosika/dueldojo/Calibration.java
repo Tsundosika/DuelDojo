@@ -20,15 +20,15 @@ final class Calibration {
 	}
 
 	/**
-	 * Measured strength of the bot's mechanics: Elo (Bradley-Terry) per settings position, fitted jointly over three
-	 * bot-vs-bot ladder runs with the tiers at different positions (gametest, 2026-10-29, v1.4 bots; each run every
-	 * tier against the next one and the one after that, 120 rounds per pairing), then made monotone (isotonic
-	 * regression). Strength is not linear in the settings, so {@link #mechanics()} inverts this curve.
+	 * Measured strength of the bot's mechanics: Elo (Bradley-Terry) per settings position, fitted jointly over two
+	 * bot-vs-bot ladder runs with the tiers at different positions (gametest, 2026-10-29, v1.5 bots in the walled
+	 * arena; each run every tier against the next one and the one after that, 120 rounds per pairing), then made
+	 * monotone (isotonic regression). Strength is not linear in the settings, so {@link #mechanics()} inverts this curve.
 	 */
-	static final float[] CURVE_POSITION = {0.0F, 0.113F, 0.169F, 0.216F, 0.227F, 0.283F, 0.324F, 0.401F, 0.411F, 0.521F,
-			0.579F, 0.594F, 0.747F, 0.875F, 0.899F, 0.939F, 0.955F, 0.973F, 0.979F, 1.0F};
-	static final float[] CURVE_ELO = {0.0F, 221.0F, 304.0F, 373.0F, 391.0F, 435.0F, 501.0F, 603.0F, 632.0F, 747.0F,
-			789.0F, 837.0F, 953.0F, 1032.0F, 1087.0F, 1103.0F, 1130.0F, 1178.0F, 1181.0F, 1216.0F};
+	static final float[] CURVE_POSITION = {0.0F, 0.088F, 0.105F, 0.204F, 0.215F, 0.285F, 0.319F, 0.395F, 0.558F, 0.587F,
+			0.861F, 0.923F, 0.943F, 0.967F, 1.0F};
+	static final float[] CURVE_ELO = {0.0F, 157.0F, 241.0F, 372.0F, 381.0F, 457.0F, 541.0F, 632.0F, 837.0F, 840.0F,
+			1107.0F, 1146.0F, 1175.0F, 1197.0F, 1202.0F};
 
 	/**
 	 * Mechanics position 0..1 per tier: where on the settings scale a bot must sit so its simulated strength

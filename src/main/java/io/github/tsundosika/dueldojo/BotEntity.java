@@ -34,6 +34,8 @@ public class BotEntity extends PathfinderMob {
 	public static final double REACH = 3.0;
 
 	private Tier tier = Tier.LT5;
+	/** Set for a practice drill: changes some settings and when it may attack. */
+	private Drill drill;
 	private LivingEntity opponent;
 	private boolean active;
 	private BotBrain brain;
@@ -79,8 +81,8 @@ public class BotEntity extends PathfinderMob {
 	public void setup(Tier tier, LivingEntity opponent) {
 		this.tier = tier;
 		this.opponent = opponent;
-		this.brain = new BotBrain(this, TierConfig.profile(tier));
-		this.setCustomName(Component.literal("Dojo Bot ").append(Component.literal(tier.id).withStyle(tier.color)));
+		this.brain = newBrain();
+		this.setCustomName(PlayerRanks.prefix(tier).append(Component.literal("Dojo Bot")));
 		this.setCustomNameVisible(true);
 		equipKit();
 		for (EquipmentSlot slot : EquipmentSlot.values()) {
@@ -119,7 +121,18 @@ public class BotEntity extends PathfinderMob {
 		this.attackStrengthTicker = 100;
 		this.lastHealth = -1;
 		this.lastPos = null;
-		this.brain = new BotBrain(this, TierConfig.profile(tier));
+		this.brain = newBrain();
+	}
+
+	/** Turns this bot into a drill partner (call before the first round). */
+	void setDrill(Drill drill) {
+		this.drill = drill;
+		this.brain = newBrain();
+	}
+
+	private BotBrain newBrain() {
+		Profile profile = TierConfig.profile(tier);
+		return drill == null ? new BotBrain(this, profile) : new BotBrain(this, drill.profile(profile), drill.attacks);
 	}
 
 	@Override

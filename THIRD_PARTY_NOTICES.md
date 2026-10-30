@@ -2,7 +2,9 @@
 
 Duel Dojo's own code and artwork are original and licensed under MIT (see `LICENSE`).
 The textures in `src/main/resources/assets/dueldojo/` are drawn by `tools/generate-art.ps1`
-and contain no Minecraft or third-party assets. No Minecraft files are included in the mod.
+and contain no Minecraft or third-party assets. No Minecraft files are included in the mod. The
+sword icon in tier tags is the game's own diamond sword texture, which `font/icons.json` only points to;
+it is loaded from your game (or resource pack) at runtime.
 
 The mod is built with, or depends at runtime on, the following projects. None of their code is
 copied into Duel Dojo; they are used as libraries or build tools under their own licenses.

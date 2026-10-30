@@ -37,15 +37,26 @@ public class DuelDojo implements ModInitializer {
 		CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> DojoCommand.register(dispatcher));
 		ServerTickEvents.END_SERVER_TICK.register(DuelManager::tick);
 		ServerTickEvents.END_SERVER_TICK.register(BotSim::tick);
+		ServerTickEvents.END_SERVER_TICK.register(Placement::tick);
+		ServerTickEvents.END_SERVER_TICK.register(Watch::tick);
 		ServerLivingEntityEvents.ALLOW_DEATH.register(DuelManager::allowDeath);
 		ServerLivingEntityEvents.ALLOW_DEATH.register(BotSim::allowDeath);
+		ServerLivingEntityEvents.ALLOW_DEATH.register(Watch::allowDeath);
 		ServerLivingEntityEvents.AFTER_DAMAGE.register(DuelManager::afterDamage);
 		ServerLivingEntityEvents.AFTER_DAMAGE.register(BotSim::afterDamage);
-		ServerPlayConnectionEvents.DISCONNECT.register((handler, server) -> DuelManager.onDisconnect(handler.getPlayer()));
-		ServerPlayConnectionEvents.JOIN.register((handler, sender, server) -> DuelRecovery.onJoin(handler.getPlayer()));
+		ServerPlayConnectionEvents.DISCONNECT.register((handler, server) -> {
+			Placement.cancel(handler.getPlayer());
+			Watch.stop(handler.getPlayer(), null);
+			DuelManager.onDisconnect(handler.getPlayer());
+		});
+		ServerPlayConnectionEvents.JOIN.register((handler, sender, server) -> {
+			DuelRecovery.onJoin(handler.getPlayer());
+			PlayerRanks.apply(handler.getPlayer());
+		});
 		ServerLifecycleEvents.SERVER_STOPPING.register(server -> {
 			DuelManager.abortAll();
 			BotSim.stopAll();
+			Watch.stopAll();
 		});
 		LOGGER.info("Duel Dojo ready: /dojo to pick a bot");
 	}

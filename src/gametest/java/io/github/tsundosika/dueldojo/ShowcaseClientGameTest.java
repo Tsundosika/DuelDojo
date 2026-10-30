@@ -6,6 +6,7 @@ import net.fabricmc.fabric.api.client.gametest.v1.context.ClientGameTestContext;
 import net.fabricmc.fabric.api.client.gametest.v1.context.TestServerContext;
 import net.fabricmc.fabric.api.client.gametest.v1.context.TestSingleplayerContext;
 import net.fabricmc.fabric.api.client.gametest.v1.screenshot.TestScreenshotOptions;
+import net.minecraft.client.CameraType;
 import net.minecraft.client.CloudStatus;
 import net.minecraft.client.GraphicsStatus;
 import net.minecraft.client.player.LocalPlayer;
@@ -100,32 +101,76 @@ public class ShowcaseClientGameTest implements FabricClientGameTest {
 			});
 			server.runOnServer(s -> DuelManager.start(player(s), Tier.HT3, 10, true));
 			for (int i = 0; i < 60; i++) {
-				context.runOnClient(client -> {
-					LocalPlayer player = client.player;
-					Entity bot = null;
-					for (Entity e : client.level.entitiesForRendering()) {
-						if (e.getType() == DuelDojo.BOT && (bot == null || e.distanceTo(player) < bot.distanceTo(player))) bot = e;
-					}
-					if (bot == null) return;
-					Vec3 to = bot.position().add(0.0, bot.getBbHeight() * 0.75, 0.0).subtract(player.getEyePosition());
-					float yaw = (float) (Mth.atan2(to.z, to.x) * Mth.RAD_TO_DEG) - 90.0F;
-					float pitch = (float) -(Mth.atan2(to.y, Math.sqrt(to.x * to.x + to.z * to.z)) * Mth.RAD_TO_DEG);
-					player.setYRot(yaw);
-					player.setXRot(pitch);
-					player.yRotO = yaw;
-					player.xRotO = pitch;
-				});
-				boolean hit = context.computeOnClient(client -> {
-					Entity target = client.crosshairPickEntity;
-					return target != null && target.getType() == DuelDojo.BOT && client.player.getAttackStrengthScale(0.0F) > 0.95F;
-				});
-				if (hit) context.getInput().pressKey(options -> options.keyAttack);
+				aimAndSwing(context);
 				context.waitTicks(3);
 				context.runOnClient(client -> client.getToastManager().clear());
 				shot(context, "duel-" + i);
 			}
 			server.runOnServer(s -> DuelManager.stop(player(s)));
+
+			// 3. A finished single fight (you don't fight back this time) for the round message and the tips in chat,
+			// then your rank above your head in third person.
+			server.runOnServer(s -> PlayerRanks.set(player(s), Tier.LT3));
+			context.runOnClient(client -> client.options.chatVisibility().set(ChatVisiblity.FULL));
+			server.runOnServer(s -> DuelManager.start(player(s), Tier.HT1, 1, true));
+			for (int waited = 0; waited < 20 * 90 && server.computeOnServer(s -> DuelManager.inDuel(player(s))); waited += 10) {
+				context.waitTicks(10);
+			}
+			context.waitTicks(10);
+			context.runOnClient(client -> client.getToastManager().clear());
+			shot(context, "chat-after-match");
+			context.runOnClient(client -> {
+				client.options.chatVisibility().set(ChatVisiblity.HIDDEN);
+				client.options.setCameraType(CameraType.THIRD_PERSON_BACK);
+			});
+			context.waitTicks(40); // the DEFEAT title fades first
+			shot(context, "rank-third-person");
+			context.runOnClient(client -> client.options.setCameraType(CameraType.FIRST_PERSON));
+			server.runOnServer(s -> PlayerRanks.set(player(s), null));
+
+			// 4. A drill: the live score in the boss bar and the coach's notes above the hotbar.
+			server.runOnServer(s -> DuelManager.startDrill(player(s), Drill.TIMING, Tier.LT3));
+			context.waitTicks(70);
+			for (int i = 0; i < 30; i++) {
+				aimAndSwing(context);
+				context.waitTicks(3);
+				shot(context, "drill-" + i);
+			}
+			server.runOnServer(s -> DuelManager.stop(player(s)));
+
+			// 5. Watching two bots in slow motion: the score bar and the technique callouts.
+			server.runOnServer(s -> Watch.start(player(s), Tier.HT1, Tier.HT2, 0.5F));
+			context.waitTicks(60);
+			for (int i = 0; i < 30; i++) {
+				context.waitTicks(8);
+				shot(context, "watch-" + i);
+			}
+			server.runOnServer(s -> Watch.stop(player(s), null));
 		}
+	}
+
+	/** Looks at the nearest bot and swings when the sword is charged and the crosshair is on it. */
+	private static void aimAndSwing(ClientGameTestContext context) {
+		context.runOnClient(client -> {
+			LocalPlayer player = client.player;
+			Entity bot = null;
+			for (Entity e : client.level.entitiesForRendering()) {
+				if (e.getType() == DuelDojo.BOT && (bot == null || e.distanceTo(player) < bot.distanceTo(player))) bot = e;
+			}
+			if (bot == null) return;
+			Vec3 to = bot.position().add(0.0, bot.getBbHeight() * 0.75, 0.0).subtract(player.getEyePosition());
+			float yaw = (float) (Mth.atan2(to.z, to.x) * Mth.RAD_TO_DEG) - 90.0F;
+			float pitch = (float) -(Mth.atan2(to.y, Math.sqrt(to.x * to.x + to.z * to.z)) * Mth.RAD_TO_DEG);
+			player.setYRot(yaw);
+			player.setXRot(pitch);
+			player.yRotO = yaw;
+			player.xRotO = pitch;
+		});
+		boolean hit = context.computeOnClient(client -> {
+			Entity target = client.crosshairPickEntity;
+			return target != null && target.getType() == DuelDojo.BOT && client.player.getAttackStrengthScale(0.0F) > 0.95F;
+		});
+		if (hit) context.getInput().pressKey(options -> options.keyAttack);
 	}
 
 	private static ServerPlayer player(MinecraftServer server) {

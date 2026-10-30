@@ -23,8 +23,11 @@ import net.minecraft.world.level.GameType;
  * DUELDOJO_POSITIONS (ten comma-separated values, LT5 … HT1) puts the tiers at those settings positions instead of the defaults.
  */
 public class LadderClientGameTest implements FabricClientGameTest {
-	/** Gametests run at real time (one server tick per client tick), so rounds are spread over parallel arenas. */
-	private static final int ARENAS_PER_PAIRING = 6;
+	/**
+	 * Rounds are spread over parallel arenas (one server tick runs per frame). The sky arenas are 36 blocks apart,
+	 * so about 36 of them fit inside the ticking distance around the player.
+	 */
+	private static final int ARENAS = 36;
 
 	@Override
 	public void runTest(ClientGameTestContext context) {
@@ -62,7 +65,7 @@ public class LadderClientGameTest implements FabricClientGameTest {
 			singleplayer.getServer().runOnServer(server -> {
 				ServerPlayer player = server.getPlayerList().getPlayers().get(0);
 				player.setGameMode(GameType.SPECTATOR);
-				BotSim.start((ServerLevel) player.level(), player.position(), pairs, rounds, ARENAS_PER_PAIRING,
+				BotSim.start((ServerLevel) player.level(), player.position(), pairs, rounds, Math.max(1, ARENAS / pairs.size()),
 						message -> DuelDojo.LOGGER.info("[ladder] {}", message.getString()), false);
 			});
 			context.waitFor(client -> !BotSim.running(), 20 * 60 * 60 * 3);

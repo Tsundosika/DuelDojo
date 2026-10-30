@@ -1,0 +1,11 @@
+{
+	"providers": [
+		{
+			"type": "bitmap",
+			"file": "minecraft:item/diamond_sword.png",
+			"ascent": 8,
+			"height": 9,
+			"chars": [""]
+		}
+	]
+}

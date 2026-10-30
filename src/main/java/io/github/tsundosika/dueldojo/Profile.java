@@ -41,12 +41,20 @@ public final class Profile {
 	public float crit;
 	/** Chance to jump the moment it gets hit (jump reset). */
 	public float jumpReset;
-	/** Distance it holds while its cooldown recharges (3.0 = your reach). */
+	/** Distance it holds while its cooldown recharges, centre to centre (your reach ends at about 3.3). */
 	public float spacing;
 	/** Chance per exchange to read your cooldown: step in right after you swing, crit-jump only when safe. */
 	public float readCooldown;
 	/** How much it plays safer when behind on health (0 … 1). */
 	public float adaptHealth;
+	/** Chance to switch strafe direction once it sees your aim catch up with it (a juke). */
+	public float aimReact;
+	/** Chance per cooldown cycle to bait: dip into your reach and straight back out so you swing at air. */
+	public float bait;
+	/** Chance per cooldown cycle to hit-select: when you're both charged it waits at the edge of reach for you to step in. */
+	public float hitSelect;
+	/** How much it plays the walls: knocks you toward them and gets itself out when it's the one pinned. */
+	public float walls;
 
 	/** Skill 0 (LT5). Sources for the human-performance values are in the README. */
 	static Profile beginner() {
@@ -70,6 +78,11 @@ public final class Profile {
 		p.spacing = 1.6F;
 		p.readCooldown = -0.2F;
 		p.adaptHealth = 0.0F;
+		// Advanced reads: nothing at the bottom, they start around the middle tiers (where each value crosses 0).
+		p.aimReact = -0.3F;
+		p.bait = -0.4F;
+		p.hitSelect = -0.3F;
+		p.walls = -0.15F;
 		return p;
 	}
 
@@ -92,9 +105,13 @@ public final class Profile {
 		p.wtap = 0.97F;
 		p.crit = 0.9F;
 		p.jumpReset = 0.85F;
-		p.spacing = 3.0F;
+		p.spacing = 3.4F; // just outside your reach
 		p.readCooldown = 0.95F;
 		p.adaptHealth = 1.0F;
+		p.aimReact = 0.9F;
+		p.bait = 0.8F;
+		p.hitSelect = 0.9F;
+		p.walls = 0.9F;
 		return p;
 	}
 
@@ -134,6 +151,10 @@ public final class Profile {
 		spacing = clamp(spacing, 0.5F, 4.0F);
 		readCooldown = clamp(readCooldown, 0.0F, 1.0F);
 		adaptHealth = clamp(adaptHealth, 0.0F, 1.0F);
+		aimReact = clamp(aimReact, 0.0F, 1.0F);
+		bait = clamp(bait, 0.0F, 1.0F);
+		hitSelect = clamp(hitSelect, 0.0F, 1.0F);
+		walls = clamp(walls, 0.0F, 1.0F);
 		return this;
 	}
 
