@@ -9,7 +9,8 @@
 		"fabric-client-gametest": [
 			"io.github.tsundosika.dueldojo.ArenaClientGameTest",
 			"io.github.tsundosika.dueldojo.test.LadderClientGameTest",
-			"io.github.tsundosika.dueldojo.ShowcaseClientGameTest"
+			"io.github.tsundosika.dueldojo.ShowcaseClientGameTest",
+			"io.github.tsundosika.dueldojo.TutorialClientGameTest"
 		]
 	},
 	"depends": {

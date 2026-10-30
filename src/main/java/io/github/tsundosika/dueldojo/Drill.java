@@ -7,7 +7,7 @@ import java.util.Locale;
  * arena against a bot of a chosen tier whose settings and attacks are changed so you get that one thing over and
  * over: nobody wins rounds, the score is how well you did it. Each tip has a [Practice] button for its drill.
  */
-enum Drill {
+public enum Drill {
 	TIMING("Timing", "Only full-charge hits count. The bot stays in reach and doesn't hit back.", BotBrain.Attacks.NEVER),
 	AIM("Aim", "The bot strafes and jukes but never attacks. Land as many swings as you can.", BotBrain.Attacks.NEVER),
 	REACH("Reach", "The bot hovers at the edge of your reach and baits. It only hits back when you whiff.", BotBrain.Attacks.AFTER_WHIFF),
@@ -22,7 +22,7 @@ enum Drill {
 	/** Below this much to judge, a drill gives no score. */
 	private static final int MIN_TRIES = 5;
 
-	final String title;
+	public final String title;
 	final String description;
 	final BotBrain.Attacks attacks;
 
@@ -91,7 +91,7 @@ enum Drill {
 		return switch (this) {
 			case TIMING -> you.swings < MIN_TRIES ? -1 : percent(you.swings - you.early, you.swings);
 			case AIM, REACH -> you.swings < MIN_TRIES ? -1 : percent(you.hits, you.swings);
-			case COMBO -> you.hitsTaken < 3 ? -1 : percent(you.jumpResets, you.hitsTaken);
+			case COMBO -> you.groundHitsTaken < 3 ? -1 : percent(you.jumpResets, you.groundHitsTaken);
 			case WTAP -> you.hits < 3 ? -1 : percent(you.sprintHits, you.hits);
 			case CRIT -> you.hits < 3 ? -1 : percent(you.crits, you.hits);
 			case SPACING -> you.swings < MIN_TRIES ? -1 : percent(you.swings - you.swingPunished, you.swings);
@@ -105,7 +105,7 @@ enum Drill {
 			case TIMING -> (you.swings - you.early) + "/" + you.swings + " full charge, best streak " + you.bestStreak;
 			case AIM -> you.hits + "/" + you.swings + " hits";
 			case REACH -> you.hits + " hits, " + (you.swings - you.hits) + " whiffs";
-			case COMBO -> you.jumpResets + "/" + you.hitsTaken + " jump resets in time";
+			case COMBO -> you.jumpResets + "/" + you.groundHitsTaken + " jump resets in time";
 			case WTAP -> you.sprintHits + "/" + you.hits + " sprint hits";
 			case CRIT -> you.crits + "/" + you.hits + " crits";
 			case SPACING -> (you.swings - you.swingPunished) + "/" + you.swings + " swings unpunished";

@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.minecraft.ChatFormatting;
 import net.minecraft.core.Holder;
 import net.minecraft.network.chat.ClickEvent;
@@ -48,11 +49,16 @@ public final class DuelManager {
 	private static final double MAX_DISTANCE = 48.0;
 	/** Fighting where you stand: the bot starts this far in front of you. */
 	private static final double HERE_DISTANCE = 6.0;
+	/** Holding the skip key (Shift) this long skips "try it". */
+	private static final int SKIP_HOLD_TICKS = 20;
 	private static final Identifier FREEZE = Identifier.fromNamespaceAndPath(DuelDojo.MOD_ID, "countdown_freeze");
 	private static final Map<UUID, Duel> DUELS = new HashMap<>();
 
 	private DuelManager() {
 	}
+
+	/** A drill with a tutorial goes through the window (nothing moves) and "try it" (no timer, nothing scored) first. */
+	private enum Stage { WINDOW, TRY, RUN }
 
 	private static final class Duel {
 		final ServerPlayer player;
@@ -83,6 +89,11 @@ public final class DuelManager {
 		final Drill drill;
 		int drillTicks;
 		ServerBossEvent bar;
+		Stage stage = Stage.RUN;
+		int skipHold;
+		TutorialNet.Hud lastHud;
+		/** The tick rate to go back to after a slowed-down "try it"; 0 = not slowed. */
+		float normalTickRate;
 
 		Duel(ServerPlayer player, BotEntity bot, Tier tier, int firstTo, Drill drill, PlayerSnapshot snapshot, DuelArena arena,
 				Vec3 playerSpawn, float playerYaw, Vec3 botSpawn, float botYaw) {
@@ -109,15 +120,19 @@ public final class DuelManager {
 	 * @param inArena true: in a {@link DuelArena} built above you; false: right where you stand
 	 */
 	public static void start(ServerPlayer player, Tier tier, int firstTo, boolean inArena) {
-		start(player, tier, firstTo, inArena, null);
+		start(player, tier, firstTo, inArena, null, false);
 	}
 
-	/** A practice drill against a bot of this tier, in the arena. */
-	static void startDrill(ServerPlayer player, Drill drill, Tier tier) {
-		start(player, tier, 1, true, drill);
+	/**
+	 * A practice drill against a bot of this tier, in the arena.
+	 *
+	 * @param tutorial show its tutorial first (needs the mod on the player's client, which it almost always is)
+	 */
+	static void startDrill(ServerPlayer player, Drill drill, Tier tier, boolean tutorial) {
+		start(player, tier, 1, true, drill, tutorial);
 	}
 
-	private static void start(ServerPlayer player, Tier tier, int firstTo, boolean inArena, Drill drill) {
+	private static void start(ServerPlayer player, Tier tier, int firstTo, boolean inArena, Drill drill, boolean tutorial) {
 		if (inDuel(player) || Watch.watching(player)) {
 			player.sendSystemMessage(Component.literal("You're already in a duel or watching one. Use /dojo stop first.").withStyle(ChatFormatting.RED));
 			return;
@@ -169,10 +184,12 @@ public final class DuelManager {
 
 		if (drill != null) {
 			duel.bar = new ServerBossEvent(UUID.randomUUID(), Component.literal(drill.title + " drill"), BossEvent.BossBarColor.YELLOW, BossEvent.BossBarOverlay.PROGRESS);
-			duel.bar.addPlayer(player);
-			player.sendSystemMessage(Component.literal(drill.title + " drill vs ").withStyle(ChatFormatting.GOLD).append(tierName(tier))
-					.append(Component.literal(" bot, " + Drill.SECONDS + " s: ").withStyle(ChatFormatting.GOLD))
-					.append(Component.literal(drill.description).withStyle(ChatFormatting.GRAY)));
+			if (tutorial && ServerPlayNetworking.canSend(player, TutorialNet.Open.TYPE)) {
+				duel.stage = Stage.WINDOW;
+				ServerPlayNetworking.send(player, new TutorialNet.Open(drill.ordinal()));
+			} else {
+				announceDrill(duel);
+			}
 			return;
 		}
 		int[] wl = DuelStats.get(player.getUUID(), tier);
@@ -183,6 +200,81 @@ public final class DuelManager {
 						.append(Component.literal("your record: " + wl[0] + "W / " + wl[1] + "L). Your items come back afterwards."
 								+ " /dojo stop to give up."))
 						.withStyle(ChatFormatting.GRAY)));
+	}
+
+	/** The drill proper is about to start: the score bar appears, and its one-line reminder in chat. */
+	private static void announceDrill(Duel duel) {
+		duel.bar.addPlayer(duel.player);
+		duel.player.sendSystemMessage(Component.literal(duel.drill.title + " drill vs ").withStyle(ChatFormatting.GOLD).append(tierName(duel.tier))
+				.append(Component.literal(" bot, " + Drill.SECONDS + " s: ").withStyle(ChatFormatting.GOLD))
+				.append(Component.literal(duel.drill.description).withStyle(ChatFormatting.GRAY)));
+	}
+
+	/** The stage of the player's drill (WINDOW, TRY or RUN), or null if they're not in a duel. */
+	static String stage(ServerPlayer player) {
+		Duel duel = DUELS.get(player.getUUID());
+		return duel == null ? null : duel.stage.name();
+	}
+
+	/** The tutorial window was closed: on to "try it", or with skip right to the drill's countdown. */
+	static void tutorialClosed(ServerPlayer player, boolean skip) {
+		Duel duel = DUELS.get(player.getUUID());
+		if (duel == null || duel.stage != Stage.WINDOW) return;
+		if (skip) {
+			duel.stage = Stage.RUN;
+			announceDrill(duel);
+			return;
+		}
+		duel.stage = Stage.TRY;
+		duel.countdown = 0;
+		freeze(player, false);
+		duel.bot.setActive(true);
+		MinecraftServer server = player.level().getServer();
+		// It slows the whole server, so only when no one else is on it.
+		if (DrillGuide.of(duel.drill).slowTry && server != null && server.getPlayerCount() == 1) {
+			duel.normalTickRate = server.tickRateManager().tickrate();
+			server.tickRateManager().setTickRate(duel.normalTickRate * 0.5F);
+		}
+		player.level().playSound(null, player.blockPosition(), SoundEvents.NOTE_BLOCK_PLING.value(), SoundSource.PLAYERS, 1.0F, 1.5F);
+	}
+
+	/** One tick of "try it": the on-screen objective and prompt; done (or skipped) goes on to the drill's countdown. */
+	private static void tutorialTick(Duel duel) {
+		ServerPlayer player = duel.player;
+		DrillGuide guide = DrillGuide.of(duel.drill);
+		int done = Math.max(0, Math.min(guide.done(duel.drill, duel.you, duel.botStats), guide.goal));
+		duel.skipHold = player.getLastClientInput().shift() ? duel.skipHold + 1 : 0;
+		boolean skipped = duel.skipHold >= SKIP_HOLD_TICKS;
+		if (done >= guide.goal || skipped) {
+			endTry(duel);
+			title(player, Component.literal(skipped ? "SKIPPED" : "GOT IT!").withStyle(ChatFormatting.GREEN, ChatFormatting.BOLD),
+					Component.literal("Now the real drill").withStyle(ChatFormatting.GRAY));
+			player.level().playSound(null, player.blockPosition(), SoundEvents.PLAYER_LEVELUP, SoundSource.PLAYERS, 1.0F, 1.0F);
+			duel.stage = Stage.RUN;
+			duel.you = playerStats(duel);
+			duel.botStats = new FightStats();
+			duel.fightTicks = 0;
+			duel.countdown = COUNTDOWN_TICKS + ROUND_PAUSE_TICKS;
+			resetFighters(duel);
+			announceDrill(duel);
+			return;
+		}
+		sendHud(duel, new TutorialNet.Hud(duel.drill.ordinal(), done, guide.hint(duel.drill, player, duel.bot, duel.you),
+				duel.skipHold * 100 / SKIP_HOLD_TICKS));
+	}
+
+	/** "Try it" is over: its prompts go away and the speed comes back. */
+	private static void endTry(Duel duel) {
+		sendHud(duel, TutorialNet.Hud.HIDDEN);
+		MinecraftServer server = duel.player.level().getServer();
+		if (duel.normalTickRate > 0.0F && server != null) server.tickRateManager().setTickRate(duel.normalTickRate);
+		duel.normalTickRate = 0.0F;
+	}
+
+	private static void sendHud(Duel duel, TutorialNet.Hud hud) {
+		if (hud.equals(duel.lastHud)) return;
+		duel.lastHud = hud;
+		ServerPlayNetworking.send(duel.player, hud);
 	}
 
 	static void giveKit(ServerPlayer player) {
@@ -254,7 +346,9 @@ public final class DuelManager {
 				duel.you.tick(player);
 				duel.botStats.tick(bot);
 			}
-			if (duel.drill != null) {
+			if (duel.stage == Stage.TRY) {
+				tutorialTick(duel);
+			} else if (duel.drill != null) {
 				if (duel.countdown == 0 && drillTick(duel)) continue;
 			} else if (duel.pending != 0) {
 				endRound(duel, duel.pending == 1);
@@ -268,7 +362,7 @@ public final class DuelManager {
 				abort(duel, "You left the arena, so the duel was cancelled.");
 				continue;
 			}
-			if (duel.countdown > 0) {
+			if (duel.countdown > 0 && duel.stage != Stage.WINDOW) {
 				if (duel.countdown % 20 == 0 && duel.countdown <= COUNTDOWN_TICKS) {
 					int seconds = duel.countdown / 20;
 					MutableComponent subtitle = tierName(duel.tier);
@@ -344,6 +438,7 @@ public final class DuelManager {
 	private static void end(Duel duel) {
 		duel.finished = true;
 		DUELS.remove(duel.player.getUUID());
+		if (duel.stage == Stage.TRY) endTry(duel);
 		if (duel.bar != null) duel.bar.removeAllPlayers();
 		MinecraftServer server = duel.player.level().getServer();
 		if (duel.bot.isAlive()) duel.bot.discard();
@@ -486,7 +581,7 @@ public final class DuelManager {
 				score < 0 ? Component.empty() : Component.literal(score + "%").withStyle(ChatFormatting.WHITE));
 		player.level().playSound(null, player.blockPosition(), SoundEvents.PLAYER_LEVELUP, SoundSource.PLAYERS, 1.0F, 1.0F);
 		player.sendSystemMessage(result);
-		player.sendSystemMessage(button("[Again]", ChatFormatting.YELLOW, drillCommand(drill, duel.tier), "Same drill again")
+		player.sendSystemMessage(button("[Again]", ChatFormatting.YELLOW, drillCommand(drill, duel.tier) + " quick", "Same drill again, without the tutorial")
 				.append(Component.literal(" "))
 				.append(button("[Duel " + duel.tier.id + "]", duel.tier.color, command(duel.tier, 1, false), "A normal fight against this tier"))
 				.append(Component.literal(" "))

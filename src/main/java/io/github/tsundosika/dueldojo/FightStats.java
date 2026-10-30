@@ -18,8 +18,17 @@ import net.minecraft.world.entity.player.Player;
 final class FightStats {
 	/** A hit taken within this many ticks of your own missed swing counts as being punished for it. */
 	private static final int PUNISH_WINDOW = 10;
-	/** Jump pressed on the tick of the hit or the next one is a jump reset; up to this many ticks later, a late one. */
+	/**
+	 * Jump pressed within this many ticks of the hit is a jump reset. The hit takes a tick to reach you and your key
+	 * press another to come back, so a press right on the hit reads as 2 here (measured with a real key press).
+	 */
+	private static final int JUMP_RESET_WINDOW = 2;
+	/** Up to this many ticks after the hit, a jump is a late one. */
 	private static final int LATE_JUMP_WINDOW = 5;
+	/** A jump this many ticks or less before a hit was just too early. */
+	private static final int EARLY_JUMP_WINDOW = 6;
+	/** How long "too late" or "too early" stays relevant, for the tutorial's prompt. */
+	private static final int JUMP_NOTE_MEMORY = 30;
 	/** Letting go of W within this many ticks after your hit counts as a W-tap. */
 	private static final int WTAP_WINDOW = 8;
 
@@ -40,9 +49,17 @@ final class FightStats {
 	int streak;
 	int bestStreak;
 	int hitsTaken;
+	/** Hits taken standing on the ground: the only ones you can jump-reset (you can't jump in the air). */
+	int groundHitsTaken;
 	int jumpResets;
 	int lateJumps;
 	int wTaps;
+	/** Sprint hits with a W-tap since your hit before them. */
+	int wTapHits;
+	/** Hits in a row without a missed swing. */
+	int hitStreak;
+	/** Hits you got away from: no hit taken in the time right after. */
+	int cleanHits;
 	/** Live notes for the player (the coach); null = none. */
 	Consumer<Component> coach;
 
@@ -56,10 +73,17 @@ final class FightStats {
 	private int lastSwingTick = -1000;
 	private int hitTakenTick = -1000;
 	private boolean jumpJudged = true;
+	private int lateJumpTick = -1000;
+	private int earlyJumpTick = -1000;
+	private int lastJumpPressTick = -1000;
 	private int hitLandedTick = -1000;
 	private boolean wTapJudged = true;
+	private boolean wTappedSinceHit;
 	private boolean prevJump;
 	private boolean prevForward;
+	private boolean onGround = true;
+	/** Your last hit, while it could still be punished; -1 = none. */
+	private int cleanHitTick = -1;
 
 	/** Called once per tick at the end of the server tick, after any hit of that tick has been counted. */
 	void tick(LivingEntity self) {
@@ -74,11 +98,21 @@ final class FightStats {
 			} else {
 				bestStreak = Math.max(bestStreak, ++streak);
 			}
-			if (!landedThisTick) lastMissTick = ticks;
+			if (landedThisTick) {
+				cleanHitTick = ticks;
+			} else {
+				lastMissTick = ticks;
+				hitStreak = 0;
+			}
 			lastSwingTick = ticks;
 			noteSwing(!landedThisTick, wasEarly);
 		}
 		if (self instanceof ServerPlayer player) keys(player.getLastClientInput());
+		if (cleanHitTick >= 0 && ticks - cleanHitTick > PUNISH_WINDOW) {
+			cleanHits++;
+			cleanHitTick = -1;
+		}
+		onGround = self.onGround();
 		landedThisTick = false;
 		landedCrit = false;
 		landedSprint = false;
@@ -93,7 +127,12 @@ final class FightStats {
 	void landed(boolean crit, boolean sprintHit, float damageTaken, FightStats victim) {
 		hits++;
 		if (crit) crits++;
-		if (sprintHit) sprintHits++;
+		if (sprintHit) {
+			sprintHits++;
+			if (wTappedSinceHit) wTapHits++;
+		}
+		wTappedSinceHit = false;
+		hitStreak++;
 		damage += damageTaken;
 		bestCombo = Math.max(bestCombo, ++combo);
 		landedThisTick = true;
@@ -103,8 +142,16 @@ final class FightStats {
 		wTapJudged = false;
 		victim.combo = 0;
 		victim.hitsTaken++;
+		victim.cleanHitTick = -1;
 		victim.hitTakenTick = victim.ticks;
-		victim.jumpJudged = false;
+		// onGround is from the end of the last tick, so the knockback of this hit hasn't changed it yet.
+		if (victim.onGround) victim.groundHitsTaken++;
+		victim.jumpJudged = !victim.onGround;
+		int early = victim.ticks - victim.lastJumpPressTick + 1;
+		if (early <= EARLY_JUMP_WINDOW) {
+			victim.earlyJumpTick = victim.ticks;
+			victim.note("Jump " + early + (early == 1 ? " tick" : " ticks") + " too early", ChatFormatting.YELLOW);
+		}
 		if (victim.ticks - victim.lastMissTick <= PUNISH_WINDOW) {
 			victim.punished++;
 			victim.lastMissTick = -1000; // one punish per miss
@@ -121,21 +168,37 @@ final class FightStats {
 		boolean forwardReleased = !input.forward() && prevForward;
 		prevJump = input.jump();
 		prevForward = input.forward();
+		if (jumpPressed) lastJumpPressTick = ticks;
 		int sinceHit = ticks - hitTakenTick - 1; // 0 = pressed on the tick of the hit
 		if (jumpPressed && !jumpJudged && sinceHit <= LATE_JUMP_WINDOW) {
 			jumpJudged = true;
-			if (sinceHit <= 1) {
+			if (sinceHit <= JUMP_RESET_WINDOW) {
 				jumpResets++;
 				note("Jump reset ✓", ChatFormatting.GREEN);
 			} else {
 				lateJumps++;
-				note("Jump reset " + sinceHit + " ticks late", ChatFormatting.YELLOW);
+				lateJumpTick = ticks;
+				note("Jump reset " + (sinceHit - JUMP_RESET_WINDOW) + (sinceHit - JUMP_RESET_WINDOW == 1 ? " tick" : " ticks") + " late", ChatFormatting.YELLOW);
 			}
 		}
 		if (forwardReleased && !wTapJudged && ticks - hitLandedTick <= WTAP_WINDOW) {
 			wTapJudged = true;
 			wTaps++;
+			wTappedSinceHit = true;
 		}
+	}
+
+	/** You just hit something and haven't let go of W yet, but still could for a W-tap. */
+	boolean wTapDue() {
+		return !wTapJudged && ticks - hitLandedTick <= WTAP_WINDOW;
+	}
+
+	boolean jumpedLateJustNow() {
+		return ticks - lateJumpTick <= JUMP_NOTE_MEMORY;
+	}
+
+	boolean jumpedEarlyJustNow() {
+		return ticks - earlyJumpTick <= JUMP_NOTE_MEMORY;
 	}
 
 	private void noteSwing(boolean missed, boolean wasEarly) {
@@ -170,9 +233,12 @@ final class FightStats {
 		swingPunished += round.swingPunished;
 		bestStreak = Math.max(bestStreak, round.bestStreak);
 		hitsTaken += round.hitsTaken;
+		groundHitsTaken += round.groundHitsTaken;
 		jumpResets += round.jumpResets;
 		lateJumps += round.lateJumps;
 		wTaps += round.wTaps;
+		wTapHits += round.wTapHits;
+		cleanHits += round.cleanHits;
 	}
 
 	int accuracy() {

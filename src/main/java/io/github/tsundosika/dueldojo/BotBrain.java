@@ -36,7 +36,7 @@ final class BotBrain {
 	/** Ground covered per tick while sprinting. */
 	private static final double SPRINT_PER_TICK = 0.28;
 	/** Reach measured centre to centre: 3 blocks from the eyes to the edge of a hitbox about 0.3 wide on each side. */
-	private static final double REACH_EDGE = 3.3;
+	static final double REACH_EDGE = 3.3;
 
 	private final BotEntity bot;
 	private final Profile p;

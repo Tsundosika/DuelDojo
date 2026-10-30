@@ -22,7 +22,7 @@ It's still a beta. If a tier feels too easy or too hard, open an issue and tell 
 - `/dojo lt3 here` - fight right where you stand instead of in the arena
 - `/dojo stats` - your wins and losses per tier
 - `/dojo rank ht3` - put your own tier before your name, in chat and above your head (`/dojo rank clear` removes it)
-- `/dojo drill` - 45 second drills for one skill each: timing, aim, reach, combo escape, W-tap, crits, spacing, dodging
+- `/dojo drill` - 45 second drills for one skill each: timing, aim, reach, combo escape, W-tap, crits, spacing, dodging. Each starts with a short tutorial that shows the move, then lets you try it (you can skip it)
 - `/dojo placement` - a few matches that find which tier you play like
 - `/dojo coach` - turn the live notes above your hotbar on or off
 - `/dojo watch ht1 ht2` - watch two bots fight at half speed as a spectator, with their techniques named as they use them (`0.25` at the end for quarter speed)

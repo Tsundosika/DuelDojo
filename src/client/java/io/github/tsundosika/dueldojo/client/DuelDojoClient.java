@@ -1,14 +1,21 @@
 package io.github.tsundosika.dueldojo.client;
 
 import com.mojang.blaze3d.vertex.PoseStack;
+import io.github.tsundosika.dueldojo.Drill;
 import io.github.tsundosika.dueldojo.DuelDojo;
+import io.github.tsundosika.dueldojo.TutorialNet;
 import net.fabricmc.api.ClientModInitializer;
+import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
+import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.fabricmc.fabric.api.client.rendering.v1.EntityRendererRegistry;
+import net.fabricmc.fabric.api.client.rendering.v1.PictureInPictureRendererRegistry;
+import net.fabricmc.fabric.api.client.rendering.v1.hud.HudElementRegistry;
 import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderContext;
 import net.fabricmc.fabric.api.client.rendering.v1.level.LevelRenderEvents;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.client.renderer.state.level.CameraRenderState;
+import net.minecraft.resources.Identifier;
 import net.minecraft.util.LightCoordsUtil;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.scores.PlayerTeam;
@@ -21,6 +28,12 @@ public class DuelDojoClient implements ClientModInitializer {
 	public void onInitializeClient() {
 		EntityRendererRegistry.register(DuelDojo.BOT, BotRenderer::new);
 		LevelRenderEvents.COLLECT_SUBMITS.register(DuelDojoClient::drawOwnRank);
+		PictureInPictureRendererRegistry.register(context -> new DemoStage.Renderer(context.minecraft().getEntityRenderDispatcher()));
+		HudElementRegistry.addLast(Identifier.fromNamespaceAndPath(DuelDojo.MOD_ID, "tutorial"), TutorialHud::extract);
+		ClientPlayNetworking.registerGlobalReceiver(TutorialNet.Open.TYPE, (payload, context) ->
+				context.client().gui.setScreen(new DrillTutorialScreen(Drill.values()[payload.drill()], true)));
+		ClientPlayNetworking.registerGlobalReceiver(TutorialNet.Hud.TYPE, (payload, context) -> TutorialHud.set(payload));
+		ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> TutorialHud.set(TutorialNet.Hud.HIDDEN));
 	}
 
 	/**
