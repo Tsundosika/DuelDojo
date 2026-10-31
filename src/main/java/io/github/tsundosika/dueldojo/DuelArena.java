@@ -91,6 +91,17 @@ final class DuelArena {
 		return Vec3.atBottomCenterOf(center.offset(0, 0, -SPAWN_OFFSET)).add(0.0, 0.5, 0.0);
 	}
 
+	/** The middle of the floor, and a place {@code blocks} from it towards the bot's side. */
+	Vec3 middle(int blocks) {
+		return Vec3.atBottomCenterOf(center.offset(0, 0, blocks)).add(0.0, 0.5, 0.0);
+	}
+
+	/** How far this place is from the nearest wall's inner face. */
+	double roomToWall(Vec3 place) {
+		double half = HALF + 0.5;
+		return half - Math.max(Math.abs(place.x - (center.getX() + 0.5)), Math.abs(place.z - (center.getZ() + 0.5)));
+	}
+
 	Vec3 botSpawn() {
 		return Vec3.atBottomCenterOf(center.offset(0, 0, SPAWN_OFFSET)).add(0.0, 0.5, 0.0);
 	}

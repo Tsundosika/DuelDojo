@@ -30,8 +30,8 @@ final class Watch {
 	/** At most one technique callout per this many ticks, so they can be read. */
 	private static final int CALLOUT_GAP = 8;
 	/** Technique counters in callout priority, and what the action bar calls them. */
-	private static final String[] TECHNIQUES = {"crit", "crit jump", "jump reset", "W-tap", "bait", "waits at the edge (hit-select)",
-			"juke", "panic click"};
+	private static final String[] TECHNIQUES = {"crit deflection", "hit select", "falling sprint hit", "pick hit", "uppercut", "crit", "crit jump",
+			"jump reset", "hold S", "delayed hit", "W-tap", "bait", "waits at the edge", "juke", "panic click"};
 
 	private static final class Session {
 		final ServerPlayer player;
@@ -177,7 +177,8 @@ final class Watch {
 	}
 
 	private static int[] techniques(BotBrain.Counts c) {
-		return new int[] {c.crits, c.critJumps, c.jumpResets, c.wtaps, c.baits, c.holds, c.jukes, c.panicSwings};
+		return new int[] {c.deflections, c.hitSelects, c.fallingSprints, c.picks, c.uppercuts, c.crits, c.critJumps,
+				c.jumpResets, c.holdBacks, c.delayedHits, c.wtaps, c.baits, c.holds, c.jukes, c.panicSwings};
 	}
 
 	private static void endRound(Session session) {

@@ -21,14 +21,14 @@ final class Calibration {
 
 	/**
 	 * Measured strength of the bot's mechanics: Elo (Bradley-Terry) per settings position, fitted jointly over two
-	 * bot-vs-bot ladder runs with the tiers at different positions (gametest, 2026-10-29, v1.5 bots in the walled
+	 * bot-vs-bot ladder runs with the tiers at different positions (gametest, 2026-10-31, v1.7 bots in the walled
 	 * arena; each run every tier against the next one and the one after that, 120 rounds per pairing), then made
 	 * monotone (isotonic regression). Strength is not linear in the settings, so {@link #mechanics()} inverts this curve.
 	 */
-	static final float[] CURVE_POSITION = {0.0F, 0.088F, 0.105F, 0.204F, 0.215F, 0.285F, 0.319F, 0.395F, 0.558F, 0.587F,
-			0.861F, 0.923F, 0.943F, 0.967F, 1.0F};
-	static final float[] CURVE_ELO = {0.0F, 157.0F, 241.0F, 372.0F, 381.0F, 457.0F, 541.0F, 632.0F, 837.0F, 840.0F,
-			1107.0F, 1146.0F, 1175.0F, 1197.0F, 1202.0F};
+	static final float[] CURVE_POSITION = {0.0F, 0.097F, 0.098F, 0.168F, 0.217F, 0.316F, 0.375F, 0.48F, 0.533F, 0.741F,
+			0.796F, 0.839F, 0.888F, 0.936F, 1.0F};
+	static final float[] CURVE_ELO = {0.0F, 170.0F, 184.0F, 268.0F, 374.0F, 491.0F, 544.0F, 673.0F, 755.0F, 862.0F,
+			923.0F, 937.0F, 944.0F, 962.0F, 1021.0F};
 
 	/**
 	 * Mechanics position 0..1 per tier: where on the settings scale a bot must sit so its simulated strength

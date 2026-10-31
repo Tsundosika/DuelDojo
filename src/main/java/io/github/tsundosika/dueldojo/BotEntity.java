@@ -45,6 +45,10 @@ public class BotEntity extends PathfinderMob {
 	final BotFood food = new BotFood();
 	/** Behaviour counts over all rounds, for the simulation report; never reset. */
 	final BotBrain.Counts counts = new BotBrain.Counts();
+	/** What it has noticed about its opponent; kept across rounds, so it can adapt over a series. */
+	final BotBrain.Habits habits = new BotBrain.Habits();
+	/** The tick of its last jump, so another bot can see it jump. */
+	int lastJumpTick = -1000;
 	private float lastHealth = -1;
 	private Vec3 lastPos;
 
@@ -131,6 +135,11 @@ public class BotEntity extends PathfinderMob {
 		this.brain = newBrain();
 	}
 
+	/** Plays with these settings instead of its tier's, for tests. */
+	void useProfile(Profile profile) {
+		this.brain = new BotBrain(this, profile);
+	}
+
 	private BotBrain newBrain() {
 		Profile profile = TierConfig.profile(tier);
 		return drill == null ? new BotBrain(this, profile) : new BotBrain(this, drill.profile(profile), drill.attacks);
@@ -161,6 +170,7 @@ public class BotEntity extends PathfinderMob {
 	@Override
 	public void jumpFromGround() {
 		super.jumpFromGround();
+		lastJumpTick = this.tickCount;
 		food.exhaust(this.isSprinting() ? 0.2F : 0.05F);
 	}
 

@@ -46,6 +46,9 @@ final class PlayerData {
 		int jumpResets;
 		/** The bot's longest combo on you. */
 		int comboTaken;
+		int firstHits;
+		/** First hits from either side. */
+		int exchanges;
 	}
 
 	private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
@@ -92,13 +95,15 @@ final class PlayerData {
 		m.won = won;
 		m.swings = you.swings;
 		m.hits = you.hits;
-		m.early = you.early;
+		m.early = you.earlyMistakes();
 		m.sprintHits = you.sprintHits;
 		m.crits = you.crits;
 		m.punished = you.punished;
 		m.hitsTaken = you.hitsTaken;
 		m.jumpResets = you.jumpResets;
 		m.comboTaken = bot.bestCombo;
+		m.firstHits = you.firstHits;
+		m.exchanges = you.firstHits + you.firstHitsLost;
 		List<Match> matches = get(player).matches;
 		matches.add(m);
 		if (matches.size() > KEEP_MATCHES) matches.subList(0, matches.size() - KEEP_MATCHES).clear();

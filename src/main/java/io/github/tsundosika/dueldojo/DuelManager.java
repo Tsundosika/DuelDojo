@@ -51,6 +51,12 @@ public final class DuelManager {
 	private static final double HERE_DISTANCE = 6.0;
 	/** Holding the skip key (Shift) this long skips "try it". */
 	private static final int SKIP_HOLD_TICKS = 20;
+	/** In the combo drill, with less room than this behind you once you're clear of a hit, you both go back to the middle. */
+	private static final double COMBO_MIN_ROOM = 5.0;
+	/** And with less than this even while you're being hit: nobody gets out of a combo with their back to a wall. */
+	private static final double COMBO_PINNED_ROOM = 2.0;
+	/** There, the bot starts this far from you. */
+	private static final int DRILL_RESTART_DISTANCE = 6;
 	private static final Identifier FREEZE = Identifier.fromNamespaceAndPath(DuelDojo.MOD_ID, "countdown_freeze");
 	private static final Map<UUID, Duel> DUELS = new HashMap<>();
 
@@ -65,6 +71,8 @@ public final class DuelManager {
 		final BotEntity bot;
 		final Tier tier;
 		final int firstTo;
+		/** At most this many rounds are played, for "best of"; 0 = no limit. */
+		final int bestOf;
 		final PlayerSnapshot snapshot;
 		/** Null when fighting where the player stood. */
 		final DuelArena arena;
@@ -95,12 +103,13 @@ public final class DuelManager {
 		/** The tick rate to go back to after a slowed-down "try it"; 0 = not slowed. */
 		float normalTickRate;
 
-		Duel(ServerPlayer player, BotEntity bot, Tier tier, int firstTo, Drill drill, PlayerSnapshot snapshot, DuelArena arena,
+		Duel(ServerPlayer player, BotEntity bot, Tier tier, int firstTo, int bestOf, Drill drill, PlayerSnapshot snapshot, DuelArena arena,
 				Vec3 playerSpawn, float playerYaw, Vec3 botSpawn, float botYaw) {
 			this.player = player;
 			this.bot = bot;
 			this.tier = tier;
 			this.firstTo = firstTo;
+			this.bestOf = bestOf;
 			this.drill = drill;
 			this.snapshot = snapshot;
 			this.arena = arena;
@@ -120,7 +129,16 @@ public final class DuelManager {
 	 * @param inArena true: in a {@link DuelArena} built above you; false: right where you stand
 	 */
 	public static void start(ServerPlayer player, Tier tier, int firstTo, boolean inArena) {
-		start(player, tier, firstTo, inArena, null, false);
+		start(player, tier, firstTo, 0, inArena, null, false);
+	}
+
+	/** A series of at most bestOf rounds that stops once one side can't be caught. An even number can end level: a draw. */
+	public static void startBestOf(ServerPlayer player, Tier tier, int bestOf, boolean inArena) {
+		start(player, tier, roundsToWin(bestOf), bestOf, inArena, null, false);
+	}
+
+	static int roundsToWin(int bestOf) {
+		return bestOf / 2 + 1;
 	}
 
 	/**
@@ -129,10 +147,10 @@ public final class DuelManager {
 	 * @param tutorial show its tutorial first (needs the mod on the player's client, which it almost always is)
 	 */
 	static void startDrill(ServerPlayer player, Drill drill, Tier tier, boolean tutorial) {
-		start(player, tier, 1, true, drill, tutorial);
+		start(player, tier, 1, 0, true, drill, tutorial);
 	}
 
-	private static void start(ServerPlayer player, Tier tier, int firstTo, boolean inArena, Drill drill, boolean tutorial) {
+	private static void start(ServerPlayer player, Tier tier, int firstTo, int bestOf, boolean inArena, Drill drill, boolean tutorial) {
 		if (inDuel(player) || Watch.watching(player)) {
 			player.sendSystemMessage(Component.literal("You're already in a duel or watching one. Use /dojo stop first.").withStyle(ChatFormatting.RED));
 			return;
@@ -176,7 +194,7 @@ public final class DuelManager {
 		bot.snapTo(botSpawn.x, botSpawn.y, botSpawn.z, botYaw, 0.0F);
 		level.addFreshEntity(bot);
 
-		Duel duel = new Duel(player, bot, tier, firstTo, drill, snapshot, arena, playerSpawn, playerYaw, botSpawn, botYaw);
+		Duel duel = new Duel(player, bot, tier, firstTo, bestOf, drill, snapshot, arena, playerSpawn, playerYaw, botSpawn, botYaw);
 		duel.you = playerStats(duel);
 		DUELS.put(player.getUUID(), duel);
 		DuelRecovery.begin(player, snapshot, arena);
@@ -196,7 +214,7 @@ public final class DuelManager {
 		Tier rank = PlayerRanks.get(player.getUUID());
 		MutableComponent you = rank == null ? Component.empty() : Component.literal("you: ").append(tierName(rank)).append(", ");
 		player.sendSystemMessage(Component.literal("Duel vs ").append(tierName(tier))
-				.append(Component.literal(" bot" + (firstTo > 1 ? ", first to " + firstTo : "") + " (").append(you)
+				.append(Component.literal(" bot" + (firstTo > 1 ? ", " + seriesName(firstTo, bestOf) : "") + " (").append(you)
 						.append(Component.literal("your record: " + wl[0] + "W / " + wl[1] + "L). Your items come back afterwards."
 								+ " /dojo stop to give up."))
 						.withStyle(ChatFormatting.GRAY)));
@@ -259,8 +277,32 @@ public final class DuelManager {
 			announceDrill(duel);
 			return;
 		}
-		sendHud(duel, new TutorialNet.Hud(duel.drill.ordinal(), done, guide.hint(duel.drill, player, duel.bot, duel.you),
+		sendHud(duel, new TutorialNet.Hud(duel.drill.ordinal(), done, guide.hint(duel.drill, player, duel.bot, duel.you, duel.botStats),
 				duel.skipHold * 100 / SKIP_HOLD_TICKS));
+	}
+
+	/**
+	 * Two drills need room behind one fighter: getting out of a combo takes it behind you, and a stun combo drives the bot
+	 * back. So there, you both go back to the middle before it runs out, and the drill carries on.
+	 */
+	private static void keepDrillRoom(Duel duel) {
+		if (duel.arena == null || duel.countdown > 0 || duel.stage == Stage.WINDOW) return;
+		if (duel.drill == Drill.COMBO) {
+			double room = duel.arena.roomToWall(duel.player.position());
+			if (room < COMBO_MIN_ROOM && (!duel.you.justHit() || room < COMBO_PINNED_ROOM)) moveToMiddle(duel, 0);
+		} else if (duel.drill == Drill.STUN && duel.arena.roomToWall(duel.bot.position()) < COMBO_MIN_ROOM) {
+			moveToMiddle(duel, -DRILL_RESTART_DISTANCE);
+		}
+	}
+
+	/** You at this many blocks from the middle of the arena, the bot in front of you at the restart distance. */
+	private static void moveToMiddle(Duel duel, int youAt) {
+		Vec3 you = duel.arena.middle(youAt);
+		duel.player.teleportTo((ServerLevel) duel.bot.level(), you.x, you.y, you.z, Set.of(), duel.playerYaw, 0.0F, true);
+		duel.player.setDeltaMovement(Vec3.ZERO);
+		Vec3 bot = duel.arena.middle(youAt + DRILL_RESTART_DISTANCE);
+		duel.bot.teleportTo(bot.x, bot.y, bot.z);
+		duel.bot.setDeltaMovement(Vec3.ZERO);
 	}
 
 	/** "Try it" is over: its prompts go away and the speed comes back. */
@@ -318,6 +360,7 @@ public final class DuelManager {
 		if (duel.drill != null || !PlayerData.get(player.getUUID()).coachOff) {
 			stats.coach = note -> player.sendOverlayMessage(note);
 		}
+		stats.allowPicks = duel.drill != Drill.TIMING;
 		return stats;
 	}
 
@@ -345,6 +388,7 @@ public final class DuelManager {
 				duel.fightTicks++;
 				duel.you.tick(player);
 				duel.botStats.tick(bot);
+				keepDrillRoom(duel);
 			}
 			if (duel.stage == Stage.TRY) {
 				tutorialTick(duel);
@@ -389,7 +433,10 @@ public final class DuelManager {
 			if (duel.finished || duel.countdown > 0) continue;
 			// Sprint knockback needs a charged hit while sprinting; the attack only stops the sprint after the damage.
 			if (entity == duel.bot && source.getEntity() == duel.player) {
-				duel.you.landed(FightStats.isCrit(source, baseDamage), duel.player.isSprinting() && duel.you.charged(), damageTaken, duel.botStats);
+				boolean sprintHit = duel.player.isSprinting() && duel.you.charged();
+				duel.you.landed(FightStats.isCrit(source, baseDamage), sprintHit, damageTaken, duel.botStats);
+				if (FightStats.atEdgeMovingAway(duel.player, duel.bot)) duel.you.landedAtEdge();
+				if (sprintHit && FightStats.atStunDistance(duel.player, duel.bot)) duel.you.stunHits++;
 			} else if (entity == duel.player && source.getEntity() == duel.bot) {
 				duel.botStats.landed(FightStats.isCrit(source, baseDamage), duel.bot.isSprinting() && duel.botStats.charged(), damageTaken, duel.you);
 			}
@@ -466,8 +513,11 @@ public final class DuelManager {
 		duel.youTotal.add(duel.you);
 		duel.botTotal.add(duel.botStats);
 		duel.totalTicks += duel.fightTicks;
-		if (duel.yourRounds >= duel.firstTo || duel.botRounds >= duel.firstTo) {
-			finish(duel, won);
+		boolean decided = duel.yourRounds >= duel.firstTo || duel.botRounds >= duel.firstTo;
+		// With all rounds played and neither side at the rounds needed, it ended level.
+		boolean allPlayed = duel.bestOf > 0 && duel.yourRounds + duel.botRounds >= duel.bestOf;
+		if (decided || allPlayed) {
+			finish(duel, won && decided, !decided);
 			return;
 		}
 
@@ -485,7 +535,7 @@ public final class DuelManager {
 		resetFighters(duel);
 	}
 
-	private static void finish(Duel duel, boolean won) {
+	private static void finish(Duel duel, boolean won, boolean draw) {
 		end(duel);
 		ServerPlayer player = duel.player;
 		int[] wl = DuelStats.get(player.getUUID(), duel.tier);
@@ -493,32 +543,55 @@ public final class DuelManager {
 		subtitle.append(duel.firstTo > 1 ? score(duel) : Component.literal(wl[0] + "W / " + wl[1] + "L"));
 
 		title(player,
-				won ? Component.literal("VICTORY").withStyle(ChatFormatting.GREEN, ChatFormatting.BOLD)
+				draw ? Component.literal("DRAW").withStyle(ChatFormatting.YELLOW, ChatFormatting.BOLD)
+						: won ? Component.literal("VICTORY").withStyle(ChatFormatting.GREEN, ChatFormatting.BOLD)
 						: Component.literal("DEFEAT").withStyle(ChatFormatting.RED, ChatFormatting.BOLD),
 				subtitle);
 		player.level().playSound(null, player.blockPosition(),
-				won ? SoundEvents.PLAYER_LEVELUP : SoundEvents.VILLAGER_NO, SoundSource.PLAYERS, 1.0F, 1.0F);
+				draw ? SoundEvents.NOTE_BLOCK_BELL.value() : won ? SoundEvents.PLAYER_LEVELUP : SoundEvents.VILLAGER_NO, SoundSource.PLAYERS, 1.0F, 1.0F);
 
 		boolean here = duel.arena == null;
-		MutableComponent line = Component.literal(won ? "You beat the " : "You lost to the ")
-				.withStyle(won ? ChatFormatting.GREEN : ChatFormatting.RED)
+		ChatFormatting color = draw ? ChatFormatting.YELLOW : won ? ChatFormatting.GREEN : ChatFormatting.RED;
+		MutableComponent line = Component.literal(draw ? "You drew with the " : won ? "You beat the " : "You lost to the ")
+				.withStyle(color)
 				.append(tierName(duel.tier))
 				.append(Component.literal(" bot" + (duel.firstTo > 1 ? " " + duel.yourRounds + "–" + duel.botRounds : "") + ". ")
-						.withStyle(won ? ChatFormatting.GREEN : ChatFormatting.RED))
-				.append(button("[Rematch]", ChatFormatting.YELLOW, command(duel.tier, duel.firstTo, here), "Fight the same tier again"));
+						.withStyle(color))
+				.append(button("[Rematch]", ChatFormatting.YELLOW, command(duel.tier, duel.firstTo, duel.bestOf, here), "Fight the same tier again"));
 		Tier next = duel.tier.next();
 		if (won && next != null) {
-			line.append(Component.literal(" ")).append(button("[Next: " + next.id + "]", next.color, command(next, duel.firstTo, here), next.description));
+			line.append(Component.literal(" ")).append(button("[Next: " + next.id + "]", next.color, command(next, duel.firstTo, duel.bestOf, here), next.description));
 		}
 		player.sendSystemMessage(line);
-		player.sendSystemMessage(Component.literal("You: " + summary(duel.youTotal) + " | Bot: " + summary(duel.botTotal)
-				+ " | " + Math.round(duel.totalTicks / 20.0F) + " s").withStyle(ChatFormatting.GRAY));
+		int exchanges = duel.youTotal.firstHits + duel.youTotal.firstHitsLost;
+		player.sendSystemMessage(Component.literal("You: " + summary(duel.youTotal) + (exchanges > 0 ? ", first hits " + duel.youTotal.firstHits + "/" + exchanges : "")
+				+ " | Bot: " + summary(duel.botTotal) + " | " + Math.round(duel.totalTicks / 20.0F) + " s").withStyle(ChatFormatting.GRAY));
+		if (!duel.youTotal.moves.isEmpty()) player.sendSystemMessage(movesLine(duel.youTotal));
+		String read = readLine(duel.bot.habits);
+		if (read != null) player.sendSystemMessage(Component.literal(read).withStyle(ChatFormatting.GOLD));
 		PlayerData.recordMatch(player.getUUID(), duel.tier, won, duel.youTotal, duel.botTotal);
 		if (Placement.active(player)) {
 			Placement.onFinished(player, duel.tier, won, duel.youTotal, duel.botTotal); // tips come at the end of placement
 		} else {
 			sendTips(player, duel.youTotal, duel.botTotal, duel.tier, won);
 		}
+	}
+
+	/** The named moves you pulled off in a match, each explained on hover. */
+	private static MutableComponent movesLine(FightStats you) {
+		MutableComponent line = Component.literal("Moves:").withStyle(ChatFormatting.GRAY);
+		you.moves.forEach((move, count) -> line.append(Component.literal(" " + move.title + " x" + count).withStyle(style -> style
+				.withColor(ChatFormatting.GREEN).withHoverEvent(new HoverEvent.ShowText(Component.literal(move.detail))))));
+		return line;
+	}
+
+	/** What the bot changed because of your habits over the match, or null if nothing: it's worth knowing you were read. */
+	static String readLine(BotBrain.Habits habits) {
+		List<String> parts = new ArrayList<>();
+		if (habits.adaptedToJumps) parts.add("delayed its hits against your jump resets");
+		if (habits.adaptedToCrits) parts.add("deflected your crits more");
+		if (habits.adaptedToDodges) parts.add("used falling sprint hits on your dodges");
+		return parts.isEmpty() ? null : "It read you: " + String.join(", ", parts) + ". Change it up.";
 	}
 
 	/** Up to three one-line tips (details on hover), each with a button for the drill that practises it. */
@@ -562,6 +635,7 @@ public final class DuelManager {
 		ServerPlayer player = duel.player;
 		Drill drill = duel.drill;
 		int score = drill.score(duel.you, duel.botStats);
+		Path.Step pathStep = Path.next(PlayerData.get(player.getUUID()).drillBest);
 		MutableComponent result = Component.literal(drill.title + " drill: ").withStyle(ChatFormatting.GOLD);
 		if (score < 0) {
 			result.append(Component.literal("too little to score, keep at it next time.").withStyle(ChatFormatting.GRAY));
@@ -586,6 +660,7 @@ public final class DuelManager {
 				.append(button("[Duel " + duel.tier.id + "]", duel.tier.color, command(duel.tier, 1, false), "A normal fight against this tier"))
 				.append(Component.literal(" "))
 				.append(button("[Other drills]", ChatFormatting.GRAY, "/dojo drill", "All drills")));
+		Path.afterDrill(player, drill, pathStep);
 	}
 
 	/** Health as hearts, rounded up to half hearts like the health bar: 6.3 health is 3.5 hearts. Also the bots' health line. */
@@ -596,14 +671,23 @@ public final class DuelManager {
 	}
 
 	static String command(Tier tier, int firstTo, boolean here) {
-		return "/dojo " + tier.lowerId() + (firstTo > 1 ? " " + firstTo : "") + (here ? " here" : "");
+		return command(tier, firstTo, 0, here);
+	}
+
+	static String command(Tier tier, int firstTo, int bestOf, boolean here) {
+		String series = bestOf > 0 ? " bo " + bestOf : firstTo > 1 ? " " + firstTo : "";
+		return "/dojo " + tier.lowerId() + series + (here ? " here" : "");
+	}
+
+	private static String seriesName(int firstTo, int bestOf) {
+		return bestOf > 0 ? "best of " + bestOf : "first to " + firstTo;
 	}
 
 	private static MutableComponent score(Duel duel) {
 		return Component.literal("You " + duel.yourRounds).withStyle(ChatFormatting.GREEN)
 				.append(Component.literal(" – ").withStyle(ChatFormatting.GRAY))
 				.append(Component.literal(duel.botRounds + " Bot").withStyle(ChatFormatting.RED))
-				.append(Component.literal("  (first to " + duel.firstTo + ")").withStyle(ChatFormatting.GRAY));
+				.append(Component.literal("  (" + seriesName(duel.firstTo, duel.bestOf) + ")").withStyle(ChatFormatting.GRAY));
 	}
 
 	private static String summary(FightStats s) {

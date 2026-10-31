@@ -330,6 +330,14 @@ final class DrillDemo {
 					.botSwings(0.5F, 1.3F, 2.1F).youHurt(0.55F, 1.35F, 2.15F)
 					.popOnYou(0.57F, "Hit 1", BAD).popOnYou(1.37F, "Hit 2", BAD).popOnYou(2.17F, "Hit 3", BAD)
 					.caption(0.55F, 2.15F, "Knocked back, it walks back in", BAD).caption(2.15F, 3.7F, "That's a combo", BAD);
+			case COMBO_HOLD_S -> new Scene(4.4F)
+					.you(0.0F, 0.6F, 0.55F, 0.6F, 0.95F, -1.1F, 2.8F, -3.9F, 4.4F, -3.9F)
+					.bot(0.0F, 3.1F, 0.5F, 3.1F, 1.25F, 1.6F, 2.8F, 0.3F, 4.4F, 0.3F)
+					.youJump(0.55F, 0.45F, 0.45F)
+					.botSwings(0.5F).youHurt(0.55F)
+					.key(DrillGuide.Key.BACK, 0.6F, 2.8F)
+					.popOnYou(0.57F, "Hit", BAD).popOnYou(1.9F, "Out of reach", GOOD)
+					.caption(0.0F, 0.55F, "It's about to hit you", NOTE).caption(0.55F, 1.7F, "Hold S right away", GOOD).caption(1.7F, 4.2F, "Its next hit can't reach you", GOOD);
 			case COMBO_JUMP -> new Scene(4.2F)
 					.you(0.0F, -0.8F, 0.85F, -0.8F, 1.3F, -1.3F, 4.2F, -1.3F)
 					.bot(0.0F, 2.3F, 0.85F, 2.3F, 1.7F, 1.6F, 1.95F, 1.6F, 2.25F, 3.0F, 3.6F, 3.0F, 4.1F, 2.3F)
@@ -391,6 +399,33 @@ final class DrillDemo {
 					.key(DrillGuide.Key.LEFT, 1.5F, 2.0F).key(DrillGuide.Key.RIGHT, 0.6F, 1.05F, 2.4F, 3.0F)
 					.popOnBot(1.0F, "Miss", GOOD).popOnBot(1.95F, "Miss", GOOD)
 					.caption(0.0F, 0.6F, "It comes at you", NOTE).caption(0.6F, 3.0F, "Strafe: its swings miss", GOOD);
+			case FIRST_DODGE -> new Scene(4.4F).showRuler()
+					.you(0.0F, -2.0F, 1.0F, -2.0F, 1.5F, -3.2F, 2.0F, -3.2F, 2.35F, -2.2F, 4.4F, -2.2F)
+					.bot(0.0F, 3.0F, 1.35F, 0.5F, 2.4F, 0.5F, 2.7F, 1.9F, 4.4F, 1.9F)
+					.botJump(2.4F, 0.3F, 0.3F)
+					.botSwings(1.4F).youSwings(2.35F).botHurt(2.4F)
+					.key(DrillGuide.Key.BACK, 1.0F, 1.5F).key(DrillGuide.Key.FORWARD, 2.0F, 2.35F).key(DrillGuide.Key.ATTACK, 2.35F, 2.5F)
+					.popOnBot(1.45F, "Miss", GOOD).popOnBot(2.4F, "First hit!", GOOD)
+					.caption(0.0F, 1.0F, "It comes at you", NOTE).caption(1.0F, 1.5F, "Step back just in time", GOOD)
+					.caption(1.5F, 2.0F, "Its swing hits air", GOOD).caption(2.0F, 4.2F, "Now hit it first", GOOD);
+			case STUN_CLOSE -> new Scene(3.8F)
+					.you(0.0F, -1.2F, 0.5F, -1.2F, 1.35F, -0.4F, 1.75F, -1.8F, 3.8F, -1.8F)
+					.bot(0.0F, 1.0F, 0.55F, 1.0F, 0.85F, 1.6F, 1.35F, 0.9F, 3.8F, 0.9F)
+					.botJump(0.55F, 0.3F, 0.3F).youJump(1.4F, 0.4F, 0.4F)
+					.youSwings(0.5F).botSwings(1.35F).botHurt(0.55F).youHurt(1.4F)
+					.key(DrillGuide.Key.FORWARD, 0.0F, 1.4F).key(DrillGuide.Key.ATTACK, 0.5F, 0.65F)
+					.popOnBot(0.55F, "Hit", GOOD).popOnYou(1.42F, "Hit back!", BAD)
+					.caption(0.55F, 1.3F, "You stayed right on it", BAD).caption(1.3F, 3.2F, "It walks back and hits you", BAD);
+			case STUN_SPACED -> new Scene(4.6F).showRuler()
+					.you(0.0F, -2.6F, 0.4F, -1.4F, 0.6F, -1.4F, 0.85F, -1.6F, 1.25F, -1.6F, 1.65F, -0.9F, 1.9F, -0.9F, 2.15F, -1.0F, 2.5F, -1.0F, 2.9F, -0.2F, 4.6F, -0.2F)
+					.bot(0.0F, 1.6F, 0.45F, 1.6F, 0.8F, 3.6F, 1.7F, 2.0F, 2.05F, 4.0F, 2.95F, 2.8F, 3.3F, 4.9F, 4.6F, 4.9F)
+					.botJump(0.45F, 0.3F, 0.3F).botJump(1.7F, 0.3F, 0.3F).botJump(2.95F, 0.3F, 0.3F)
+					.youSwings(0.4F, 1.65F, 2.9F).botHurt(0.45F, 1.7F, 2.95F)
+					.key(DrillGuide.Key.FORWARD, 0.0F, 0.6F, 1.25F, 1.75F, 2.5F, 3.0F).key(DrillGuide.Key.BACK, 0.6F, 0.85F, 1.9F, 2.15F)
+					.key(DrillGuide.Key.ATTACK, 0.4F, 0.55F, 1.65F, 1.8F, 2.9F, 3.05F)
+					.popOnBot(0.45F, "Hit 1", GOOD).popOnBot(1.7F, "Hit 2", GOOD).popOnBot(2.95F, "Hit 3", GOOD)
+					.caption(0.0F, 0.45F, "Hit from the edge of reach", GOOD).caption(0.6F, 1.25F, "Tap S: keep the gap", GOOD)
+					.caption(1.25F, 2.9F, "It walks in, can't reach you", GOOD).caption(2.9F, 4.4F, "That's a stun combo", GOOD);
 		};
 	}
 }

@@ -19,14 +19,21 @@ final class Coach {
 
 	static List<Tip> tips(FightStats you, FightStats bot, Tier tier, boolean won) {
 		List<Tip> tips = new ArrayList<>();
-		if (you.swings >= 8 && you.early * 100 >= you.swings * 25) {
-			tips.add(new Tip(percent(you.early, you.swings) + "% early swings: wait for full charge",
-					"Those swings came before your sword was charged (under 90%). Early hits do less damage and no sprint knockback.",
+		if (you.swings >= 8 && you.earlyMistakes() * 100 >= you.swings * 25) {
+			tips.add(new Tip(percent(you.earlyMistakes(), you.swings) + "% early swings: wait for full charge",
+					"Those swings came before your sword was charged (under 90%). Early hits do less damage and no sprint knockback."
+							+ " A quick hit on someone flying out of your reach is fine: that's a pick hit, and it isn't counted here.",
 					Drill.TIMING));
 		}
 		if (you.swings >= 8 && you.accuracy() < 70) {
 			tips.add(new Tip(you.accuracy() + "% hit rate: click only when aimed",
 					"A miss resets your sword too. Only click when the bot is in reach and on your crosshair.", Drill.AIM));
+		}
+		int exchanges = you.firstHits + you.firstHitsLost;
+		if (exchanges >= 4 && you.firstHits * 100 < exchanges * 40) {
+			tips.add(new Tip("First hits " + you.firstHits + "/" + exchanges + ": let it step into your reach",
+					"The first hit decides who's in control: lose it and you're the one getting comboed. Stay just outside its reach"
+							+ " and step back as it comes in, so its swing misses, then hit it first.", Drill.FIRST));
 		}
 		if (you.punished >= 2) {
 			tips.add(new Tip("Hit " + you.punished + "x after missing: don't swing out of reach",
@@ -34,16 +41,17 @@ final class Coach {
 					Drill.REACH));
 		}
 		if (bot.bestCombo >= 3) {
-			tips.add(new Tip("Took " + bot.bestCombo + " hits in a row: back off or jump-reset",
-					"After you get hit, back off, or jump just as the hit lands (jump reset) to take less knockback, instead"
-							+ " of walking straight back in. You jump-reset " + you.jumpResets + " of the " + you.groundHitsTaken
-							+ " hits you took on the ground in time" + (you.lateJumps > 0 ? ", " + you.lateJumps + " too late." : "."),
+			tips.add(new Tip("Took " + bot.bestCombo + " hits in a row: hold S to get out",
+					"As soon as you're hit, hold S: you fly further and its next hit can't reach you. A jump reset is for when"
+							+ " it's too close to knock you far, and a delayed hit beats it. You got away from " + you.escapes
+							+ " of the " + you.hitsTaken + " hits you took.",
 					Drill.COMBO));
 		}
-		if (you.hits >= 5 && you.sprintHits * 100 < you.hits * 40) {
+		// Crits are good hits too: this is only about hits that were neither.
+		if (you.hits >= 5 && (you.sprintHits + you.crits) * 100 < you.hits * 40) {
 			tips.add(new Tip(percent(you.sprintHits, you.hits) + "% sprint hits: W-tap between hits",
-					"Only those hits had sprint knockback. Let go of W for a moment after each hit (W-tap) so the next one"
-							+ " knocks the bot back again.", Drill.WTAP));
+					"Most of your hits were neither sprint hits nor crits. Let go of W for a moment after each hit (W-tap) so the"
+							+ " next one knocks the bot back again.", Drill.WTAP));
 		}
 		if (you.swingPunished - you.punished >= 2) {
 			tips.add(new Tip("Hit " + you.swingPunished + "x while recharging: back off after swinging",
