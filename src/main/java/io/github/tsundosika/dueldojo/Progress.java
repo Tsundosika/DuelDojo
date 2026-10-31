@@ -28,6 +28,7 @@ final class Progress {
 		List<PlayerData.Match> before = matches.subList(matches.size() - 2 * n, matches.size() - n);
 		lines.add(Component.literal("Your last " + n + " matches vs the " + n + " before:").withStyle(ChatFormatting.GRAY));
 		lines.add(line("Hit rate", rate(recent, Stat.HITS, Stat.SWINGS), rate(before, Stat.HITS, Stat.SWINGS), true));
+		lines.add(line("First hits", rate(recent, Stat.FIRST_HITS, Stat.EXCHANGES), rate(before, Stat.FIRST_HITS, Stat.EXCHANGES), true));
 		lines.add(line("Early swings", rate(recent, Stat.EARLY, Stat.SWINGS), rate(before, Stat.EARLY, Stat.SWINGS), false));
 		lines.add(line("Sprint hits", rate(recent, Stat.SPRINT, Stat.HITS), rate(before, Stat.SPRINT, Stat.HITS), true));
 		lines.add(line("Crits", rate(recent, Stat.CRITS, Stat.HITS), rate(before, Stat.CRITS, Stat.HITS), true));
@@ -35,7 +36,7 @@ final class Progress {
 		return lines;
 	}
 
-	private enum Stat { HITS, SWINGS, EARLY, SPRINT, CRITS, JUMP_RESETS, HITS_TAKEN }
+	private enum Stat { HITS, SWINGS, EARLY, SPRINT, CRITS, JUMP_RESETS, HITS_TAKEN, FIRST_HITS, EXCHANGES }
 
 	private static int sum(List<PlayerData.Match> matches, Stat stat) {
 		int total = 0;
@@ -48,6 +49,8 @@ final class Progress {
 				case CRITS -> m.crits;
 				case JUMP_RESETS -> m.jumpResets;
 				case HITS_TAKEN -> m.hitsTaken;
+				case FIRST_HITS -> m.firstHits;
+				case EXCHANGES -> m.exchanges;
 			};
 		}
 		return total;

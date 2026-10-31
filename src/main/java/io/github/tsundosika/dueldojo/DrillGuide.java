@@ -12,8 +12,8 @@ public final class DrillGuide {
 
 	/** The little scene playing on a page; client/DrillDemo has the script for each. */
 	public enum Demo {
-		TIMING_FULL, TIMING_EARLY, AIM_FOLLOW, AIM_WHIFF, REACH_STEP_IN, REACH_WHIFF, COMBO_NO_JUMP, COMBO_JUMP,
-		WTAP_NO_TAP, WTAP_TAP, CRIT_FALLING, CRIT_RISING, SPACING_STAY, SPACING_BACK, DODGE_STRAFE
+		TIMING_FULL, TIMING_EARLY, AIM_FOLLOW, AIM_WHIFF, REACH_STEP_IN, REACH_WHIFF, COMBO_NO_JUMP, COMBO_HOLD_S, COMBO_JUMP,
+		WTAP_NO_TAP, WTAP_TAP, CRIT_FALLING, CRIT_RISING, SPACING_STAY, SPACING_BACK, DODGE_STRAFE, FIRST_DODGE, STUN_CLOSE, STUN_SPACED
 	}
 
 	public record Page(String title, String text, Demo demo) {
@@ -47,6 +47,8 @@ public final class DrillGuide {
 			case CRIT -> CRIT;
 			case SPACING -> SPACING;
 			case DODGE -> DODGE;
+			case FIRST -> FIRST;
+			case STUN -> STUN;
 		};
 	}
 
@@ -72,12 +74,12 @@ public final class DrillGuide {
 
 	private static final DrillGuide COMBO = new DrillGuide(List.of(
 			new Page("What a combo is", "Every hit knocks you back, and the bot walks right back in for the next one.", Demo.COMBO_NO_JUMP),
-			new Page("Jump as the hit lands", "Press jump the moment its sword hits you. You fly back less and can hit back. That's a jump reset.", Demo.COMBO_JUMP)),
-			"Jump resets", 2, true,
-			new Hint("Jump as its sword hits you", Key.JUMP),
-			new Hint("In the air: wait until you land"),
-			new Hint("Too late: jump a bit sooner", Key.JUMP),
-			new Hint("Too early: wait for the hit", Key.JUMP));
+			new Page("Hold S as soon as you're hit", "You fly further and keep going back, so its next hit can't reach you. This is the main way out of a combo.", Demo.COMBO_HOLD_S),
+			new Page("When it's close: jump reset", "Jump the moment its sword hits you and you fly back less, so you can hit back. Only for when it's too close to knock you far.", Demo.COMBO_JUMP)),
+			"Hits you got away from", 3, true,
+			new Hint("Hit: hold S now!", Key.BACK),
+			new Hint("Keep holding S", Key.BACK),
+			new Hint("Let it come, then hold S when it hits"));
 
 	private static final DrillGuide WTAP = new DrillGuide(List.of(
 			new Page("Sprint hits knock back further", "But every sprint hit ends your sprint, so your next hit is a weak one.", Demo.WTAP_NO_TAP),
@@ -109,33 +111,54 @@ public final class DrillGuide {
 			new Hint("Strafe left and right", Key.LEFT, Key.RIGHT),
 			new Hint("Too close: back off", Key.BACK));
 
+	private static final DrillGuide FIRST = new DrillGuide(List.of(
+			new Page("The first hit decides it", "Land it and you're in control. Lose it and you're the one getting comboed. Your score is how many first hits you win.", Demo.COMBO_NO_JUMP),
+			new Page("Step back as it comes in", "Walk back just before it gets in reach, and its swing hits air. Now step in and hit it first.", Demo.FIRST_DODGE)),
+			"First hits", 3, false,
+			new Hint("Stay out of its reach"),
+			new Hint("It's coming: step back", Key.BACK),
+			new Hint("It missed: hit it!", Key.FORWARD, Key.ATTACK));
+
+	private static final DrillGuide STUN = new DrillGuide(List.of(
+			new Page("Too close and it hits back", "Stay right on it after a hit and it just walks back through you. Your sword isn't ready yet, but it can reach you.", Demo.STUN_CLOSE),
+			new Page("Keep about 3 blocks away", "Tap S or W between hits, so each sprint hit lands from the edge of your reach. It can't reach you, so it can't hit back. That's a stun combo.", Demo.STUN_SPACED)),
+			"Hits in a row without being hit", 3, false,
+			new Hint("Too close: tap S", Key.BACK),
+			new Hint("Too far: hold W", Key.FORWARD),
+			new Hint("Wait for full charge"),
+			new Hint("Now: sprint hit!", Key.ATTACK));
+
 	/** How far along "try it" is, out of {@link #goal}. In-a-row goals can fall back to 0. */
 	int done(Drill drill, FightStats you, FightStats bot) {
 		return switch (drill) {
 			case TIMING -> you.streak;
 			case AIM -> you.hits;
 			case REACH -> you.hitStreak;
-			case COMBO -> you.jumpResets;
+			case COMBO -> you.escapes;
 			case WTAP -> you.wTapHits;
 			case CRIT -> you.crits;
 			case SPACING -> you.cleanHits;
 			case DODGE -> bot.swings - bot.hits;
+			case FIRST -> you.firstHits;
+			case STUN -> you.combo;
 		};
 	}
 
 	/** Which of {@link #hints} fits what you're doing right now. */
-	int hint(Drill drill, ServerPlayer player, BotEntity bot, FightStats you) {
+	int hint(Drill drill, ServerPlayer player, BotEntity bot, FightStats you, FightStats botStats) {
 		double distance = Math.hypot(player.getX() - bot.getX(), player.getZ() - bot.getZ());
 		boolean charged = player.getAttackStrengthScale(0.0F) >= 0.9F;
 		return switch (drill) {
 			case TIMING -> charged ? 1 : 0;
 			case AIM -> 0;
 			case REACH -> distance <= BotBrain.REACH_EDGE ? 1 : 0;
-			case COMBO -> !player.onGround() ? 1 : you.jumpedLateJustNow() ? 2 : you.jumpedEarlyJustNow() ? 3 : 0;
+			case COMBO -> !you.justHit() ? 2 : player.getLastClientInput().backward() ? 1 : 0;
 			case WTAP -> you.wTapDue() ? 1 : !player.getLastClientInput().forward() ? 2 : 0;
 			case CRIT -> !player.onGround() ? (player.fallDistance > 0.0 ? 2 : 1) : player.isSprinting() ? 3 : 0;
 			case SPACING -> charged ? 0 : 1;
 			case DODGE -> distance < BotBrain.REACH_EDGE ? 1 : 0;
+			case FIRST -> botStats.missedJustNow() ? 2 : distance < BotBrain.REACH_EDGE + 1.0 ? 1 : 0;
+			case STUN -> distance < 2.5 ? 0 : distance > BotBrain.REACH_EDGE ? 1 : charged ? 3 : 2;
 		};
 	}
 }

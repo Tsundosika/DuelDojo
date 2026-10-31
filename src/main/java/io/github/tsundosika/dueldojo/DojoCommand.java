@@ -22,9 +22,11 @@ import net.minecraft.server.level.ServerPlayer;
  * /dojo                      clickable tier menu
  * /dojo <tier> [n] [here]    duel a bot (lt5 … ht1) in a sky arena; n = first to n rounds (default 1);
  *                            "here" fights where you stand instead
+ * /dojo <tier> bo <n> [here] best of n rounds (up to 100), stops once it's decided
  * /dojo stats                your record per tier (rounds)
  * /dojo rank [tier|clear]    show / set / remove your own tier, shown before your name
  * /dojo drill [name] [tier] [quick]  practice drills, 45 s each, after a tutorial (quick: without it)
+ * /dojo path                 the drills as a course: pass each to move on to the next
  * /dojo coach [on|off]       live notes above the hotbar while you fight
  * /dojo placement            up to 4 first-to-3 matches that find which tier you play like
  * /dojo watch <a> <b> [speed] watch two bots fight in slow motion as a spectator (operators / world owner)
@@ -38,6 +40,7 @@ final class DojoCommand {
 	private static final int DEFAULT_ROUNDS = 20;
 	/** Tier tests go up to first to 20. */
 	private static final int MAX_FIRST_TO = 20;
+	private static final int MAX_BEST_OF = 100;
 
 	private DojoCommand() {
 	}
@@ -77,6 +80,10 @@ final class DojoCommand {
 									Tier tier = tier(ctx, "tier");
 									return tier == null ? 0 : startDrill(ctx, tier, false);
 								})))))
+				.then(Commands.literal("path").executes(ctx -> {
+					Path.show(ctx.getSource().getPlayerOrException());
+					return 1;
+				}))
 				.then(Commands.literal("coach")
 						.executes(ctx -> setCoach(ctx.getSource().getPlayerOrException(), null))
 						.then(Commands.literal("on").executes(ctx -> setCoach(ctx.getSource().getPlayerOrException(), true)))
@@ -112,7 +119,10 @@ final class DojoCommand {
 				.then(tierArgument("tier")
 						.executes(ctx -> startDuel(ctx, 1, true))
 						.then(Commands.literal("here").executes(ctx -> startDuel(ctx, 1, false)))
-						.then(Commands.argument("firstTo", IntegerArgumentType.integer(1, MAX_FIRST_TO))
+						.then(Commands.literal("bo").then(Commands.argument("bestOf", IntegerArgumentType.integer(1, MAX_BEST_OF))
+								.executes(ctx -> startBestOf(ctx, true))
+								.then(Commands.literal("here").executes(ctx -> startBestOf(ctx, false)))))
+						.then(Commands.argument("firstTo", IntegerArgumentType.integer(1, MAX_BEST_OF))
 								.executes(ctx -> startDuel(ctx, IntegerArgumentType.getInteger(ctx, "firstTo"), true))
 								.then(Commands.literal("here")
 										.executes(ctx -> startDuel(ctx, IntegerArgumentType.getInteger(ctx, "firstTo"), false))))));
@@ -140,7 +150,21 @@ final class DojoCommand {
 		ServerPlayer player = ctx.getSource().getPlayerOrException();
 		Tier tier = tier(ctx, "tier");
 		if (tier == null) return 0;
+		if (firstTo > MAX_FIRST_TO) {
+			String bestOf = DuelManager.command(tier, 0, firstTo, !inArena);
+			player.sendSystemMessage(Component.literal("First to goes up to " + MAX_FIRST_TO + ". For a longer series, use best of: ").withStyle(ChatFormatting.YELLOW)
+					.append(DuelManager.button("[Best of " + firstTo + "]", ChatFormatting.AQUA, bestOf, bestOf)));
+			return 0;
+		}
 		DuelManager.start(player, tier, firstTo, inArena);
+		return 1;
+	}
+
+	private static int startBestOf(CommandContext<CommandSourceStack> ctx, boolean inArena) throws CommandSyntaxException {
+		ServerPlayer player = ctx.getSource().getPlayerOrException();
+		Tier tier = tier(ctx, "tier");
+		if (tier == null) return 0;
+		DuelManager.startBestOf(player, tier, IntegerArgumentType.getInteger(ctx, "bestOf"), inArena);
 		return 1;
 	}
 
@@ -173,6 +197,8 @@ final class DojoCommand {
 		}
 		player.sendSystemMessage(series);
 		player.sendSystemMessage(Component.literal("Practice: ").withStyle(ChatFormatting.GRAY)
+				.append(DuelManager.button("[Course]", ChatFormatting.GOLD, "/dojo path", "The drills in order, basics first: pass each to move on"))
+				.append(Component.literal(" "))
 				.append(DuelManager.button("[Drills]", ChatFormatting.AQUA, "/dojo drill", "Short drills for one skill each"))
 				.append(Component.literal(" "))
 				.append(DuelManager.button("[Find my level]", ChatFormatting.GOLD, "/dojo placement", "Up to 4 matches that find which tier you play like"))
@@ -181,6 +207,8 @@ final class DojoCommand {
 				.append(Component.literal(" "))
 				.append(DuelManager.button("[Stats]", ChatFormatting.WHITE, "/dojo stats", "Your record and how you're improving")));
 		player.sendSystemMessage(Component.literal("Duels are in a sky arena built above you. Add \"here\" to fight where you stand: /dojo lt3 here")
+				.withStyle(ChatFormatting.DARK_GRAY));
+		player.sendSystemMessage(Component.literal("Longer series: /dojo lt3 20 is first to 20, /dojo lt3 bo 100 is best of 100.")
 				.withStyle(ChatFormatting.DARK_GRAY));
 		return 1;
 	}

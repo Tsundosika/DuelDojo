@@ -3,6 +3,7 @@ package io.github.tsundosika.dueldojo;
 import java.util.ArrayDeque;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.util.Mth;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.entity.LivingEntity;
@@ -27,8 +28,14 @@ import net.minecraft.world.phys.Vec3;
  *       read your cooldown: step in right after you swing, and only crit-jump when you can't answer.</li>
  *   <li><b>Reading you</b> (middle tiers up): it sees where you aim, with the same delay as everything else, and
  *       switches strafe direction once your aim catches up (juke); it baits, dipping into your reach and back out
- *       so you swing at air; it hit-selects, waiting at the edge of reach for you to step in when you're both
- *       charged; and it plays the walls, circling so its hits knock you into one and getting out when it's pinned.</li>
+ *       so you swing at air; it waits at the edge of reach for you to step in when you're both charged; and it
+ *       plays the walls, circling so its hits knock you into one and getting out when it's pinned.</li>
+ *   <li><b>The crit fight:</b> after a hit it answers straight back with a sprint hit if its sword is ready (a crit
+ *       deflection or hit select), and otherwise holds S to get out of the combo, unless you're so close that a jump
+ *       reset is better. It sprint-jumps in for uppercuts, keeps sprinting onto someone backing off
+ *       (falling sprint hit), and catches you at the far end of its reach with an early hit (pick hit).</li>
+ *   <li><b>Adapting</b> (over a series): it notices when you jump-reset, crit or back off a lot, and answers with
+ *       delayed hits, more deflections and more falling sprint hits.</li>
  * </ul>
  */
 final class BotBrain {
@@ -37,6 +44,27 @@ final class BotBrain {
 	private static final double SPRINT_PER_TICK = 0.28;
 	/** Reach measured centre to centre: 3 blocks from the eyes to the edge of a hitbox about 0.3 wide on each side. */
 	static final double REACH_EDGE = 3.3;
+	/** Closer than this when hit, it wasn't a perfect stun hit from the edge of reach, so a jump reset beats holding S. */
+	private static final double JUMP_RESET_RANGE = 2.9;
+	/** How long it goes straight back in to answer a hit, in ticks. */
+	private static final int ANSWER_TICKS = 8;
+	/** How long it holds S to get out of a combo, and after answering a hit, in ticks. */
+	private static final int HOLD_BACK_TICKS = 12;
+	private static final int HOLD_AFTER_ANSWER_TICKS = 6;
+	/** How long it holds its swing, waiting to be hit so it can answer, in ticks. */
+	private static final int MAX_WAIT_TICKS = 14;
+	/** How far a hit carries you per tick at first, in blocks: a sprint hit (0.5 knockback on top) and a plain one or crit. */
+	private static final double SPRINT_KNOCKBACK_PER_TICK = 0.7;
+	private static final double CRIT_KNOCKBACK_PER_TICK = 0.35;
+	/**
+	 * How much of its answers it plans by holding its swing. That hands them the hit (a counter gets you out of a bad
+	 * spot, it doesn't win the exchange), and tested, a lot of it loses more than it gains. So it's the exception: mostly
+	 * it would rather hit first, and answers when a hit lands with its sword ready anyway.
+	 */
+	private static final float WAIT_FOR_CRIT_SHARE = 0.1F;
+	private static final float WAIT_FOR_HIT_SHARE = 0.5F;
+	/** Someone coming at it this fast, in blocks per tick, can't be walked away from: holding S only loses time. */
+	private static final double CHASED_SPEED = 0.2;
 
 	private final BotEntity bot;
 	private final Profile p;
@@ -90,8 +118,28 @@ final class BotBrain {
 	private int baitIn;
 	private int baitOut;
 	private int baitStart = -1000;
-	private boolean selectsThisCycle;
+	private boolean holdsThisCycle;
 	private int holdTicks;
+
+	// The crit fight.
+	/** Answering a hit: from answerAt (its reaction time) to answerUntil it goes back in and sprint-hits as soon as it can. */
+	private int answerAt = -1;
+	private int answerUntil = -1;
+	private boolean answeringCrit;
+	/** This cycle it means to let a crit or an approaching hit land, so its sword is ready to answer. */
+	private boolean deflectsThisCycle;
+	private boolean selectsThisCycle;
+	private int waitTicks;
+	/** It held its swing last tick, waiting to be hit. */
+	private boolean waitingForHit;
+	/** It holds S up to this tick. */
+	private int backUntil = -1;
+	private boolean uppercutDecided;
+	private boolean fallDecided;
+	private boolean fallingSprint;
+	private boolean pickDecided;
+	/** Up to this tick it watches whether you jump as its hit lands. */
+	private int watchJumpUntil = -1;
 
 	// Walls, probed every few ticks at body height: the nearest wall around the opponent (distance and direction),
 	// the wall right behind the opponent and right behind the bot (on the line between them), and the bot's room
@@ -149,13 +197,35 @@ final class BotBrain {
 		/** Opponent swings during a bait (within 10 ticks of it), and how many of them still hit. */
 		int baitSwings;
 		int baitHits;
-		/** Cycles in which it held at the edge of reach to hit-select. */
+		/** Cycles in which it held at the edge of reach. */
 		int holds;
 		/** Ticks close with the opponent pinned against a wall behind them, and ticks spent getting out of one itself. */
 		int pinTicks;
 		int escapeTicks;
+		int deflections;
+		int hitSelects;
+		/** Hits taken after which it held S to get away. */
+		int holdBacks;
+		int uppercuts;
+		int fallingSprints;
+		int picks;
+		int delayedHits;
+		/** Times it held its swing to let them hit first; answers it went for, and how many came to nothing. */
+		int waits;
+		int answers;
+		int answersLost;
 
 		void add(Counts o) {
+			waits += o.waits;
+			answers += o.answers;
+			answersLost += o.answersLost;
+			deflections += o.deflections;
+			hitSelects += o.hitSelects;
+			holdBacks += o.holdBacks;
+			uppercuts += o.uppercuts;
+			fallingSprints += o.fallingSprints;
+			picks += o.picks;
+			delayedHits += o.delayedHits;
 			jukes += o.jukes;
 			baits += o.baits;
 			baitSwings += o.baitSwings;
@@ -182,6 +252,36 @@ final class BotBrain {
 		}
 	}
 
+	/**
+	 * What it has noticed about its opponent over a series, the way a person starts to read someone after a few
+	 * exchanges. A habit only counts once there's enough of it to go on.
+	 */
+	static final class Habits {
+		private static final int ENOUGH = 6;
+		int hitsLanded;
+		int jumpedOnHit;
+		int hitsTaken;
+		int critsTaken;
+		int swings;
+		int backedOffSwings;
+		/** What it actually changed because of this, for the line after the match. */
+		boolean adaptedToJumps;
+		boolean adaptedToCrits;
+		boolean adaptedToDodges;
+
+		boolean jumpsOnHits() {
+			return hitsLanded >= ENOUGH && jumpedOnHit * 100 >= hitsLanded * 35;
+		}
+
+		boolean crits() {
+			return hitsTaken >= ENOUGH && critsTaken * 100 >= hitsTaken * 40;
+		}
+
+		boolean dodges() {
+			return swings >= ENOUGH && backedOffSwings * 100 >= swings * 25;
+		}
+	}
+
 	void faceInstantly(LivingEntity target) {
 		float[] angles = anglesTo(aimPoint(target.position(), target));
 		apply(angles[0], angles[1]);
@@ -197,6 +297,10 @@ final class BotBrain {
 		while (!unseenSwings.isEmpty() && unseenSwings.peek()[0] <= age) opponentSwingTick = unseenSwings.poll()[1];
 		boolean baiting = age - baitStart <= 10;
 		if (opponentSwung && baiting) bot.counts.baitSwings++;
+		if (age <= watchJumpUntil && jumping(target)) {
+			bot.habits.jumpedOnHit++;
+			watchJumpUntil = -1;
+		}
 
 		// 1. Perception and aim.
 		Vec3 seen = perceivedPosition();
@@ -217,10 +321,32 @@ final class BotBrain {
 		if (opponentSwung && !gotHit) punishUntil = age + 20;
 		boolean mayAttack = attacks == Attacks.ALWAYS || (attacks == Attacks.AFTER_WHIFF && age <= punishUntil);
 		if (gotHit && random.nextFloat() < p.panicClick) panicTick = age + reactionTicks();
-		float healthGap = (target.getHealth() - bot.getHealth()) / target.getMaxHealth();
-		float spacing = p.spacing + (healthGap > 0.2F ? 0.3F * p.adaptHealth : 0.0F);
 		double toX = dx / Math.max(dist, 1.0E-4);
 		double toZ = dz / Math.max(dist, 1.0E-4);
+		double approach = -(seenVelocity.x * toX + seenVelocity.z * toZ);
+		if (gotHit) reactToHit(target, dist, approach, mayAttack);
+		if (answerUntil >= 0 && age > answerUntil) {
+			answerUntil = -1;
+			bot.counts.answersLost++;
+		}
+		boolean answering = age >= answerAt && age <= answerUntil;
+		// Back off while the sword recharges, like an S-tap; once it's about ready, it goes forward again for the sprint hit.
+		boolean backing = age <= backUntil && !answering && ownReadyIn > 2.0F;
+		// Letting them hit first, on purpose. Its sword is only ever ready to answer a hit if it didn't just swing, so with
+		// its sword ready and them about to hit, it may hold its swing: coming down on it for a crit, that sets up a
+		// deflection; close by mid-trade with their sword ready, a hit select. (From further out a hit select is a bad
+		// idea: a well-spaced first hit stuns you before you can answer.)
+		boolean inAir = !target.onGround();
+		boolean waiting = mayAttack && !answering && !backing && !critPlan && waitTicks < MAX_WAIT_TICKS
+				&& bot.attackCharge() > 0.9F && answerAt <= age
+				&& (inAir ? deflectsThisCycle && dist < 4.5 : selectsThisCycle && readsThisCycle && opponentReadyIn <= 2.0F && dist < REACH_EDGE);
+		if (waiting) {
+			if (waitTicks == 0) bot.counts.waits++;
+			waitTicks++;
+		}
+		waitingForHit = waiting;
+		float healthGap = (target.getHealth() - bot.getHealth()) / target.getMaxHealth();
+		float spacing = p.spacing + (healthGap > 0.2F ? 0.3F * p.adaptHealth : 0.0F);
 		if (age % 4 == 0) probeWalls(level, seen, toX, toZ);
 		boolean pinned = oppBehind < 2.0 && dist < 4.5; // a wall right behind the opponent: their knockback stops there
 		if (pinned) bot.counts.pinTicks++;
@@ -231,10 +357,10 @@ final class BotBrain {
 		boolean punish = readsThisCycle && opponentReadyIn > closeTicks + 1 && ownReadyIn <= closeTicks + 1;
 		float eager = (healthGap < -0.2F ? 2.0F * p.adaptHealth : 0.0F) + (pinned ? 3.0F * p.walls : 0.0F);
 		boolean engage = punish || ownReadyIn <= 2.0F + eager;
-		// Hit-select: when both swords are charged and the opponent is just out of reach, it doesn't walk into their
-		// hit; it waits at the edge (for up to a second) so they step into its reach and it hits first.
+		// Holding at the edge: when both swords are charged and the opponent is just out of reach, it doesn't walk into
+		// their hit; it waits (for up to a second) so they step into its reach and it hits first.
 		boolean holding = false;
-		if (engage && !punish && selectsThisCycle && readsThisCycle && opponentReadyIn <= 0.0F && dist > REACH_EDGE && dist < 4.5
+		if (engage && !punish && holdsThisCycle && readsThisCycle && opponentReadyIn <= 0.0F && dist > REACH_EDGE && dist < 4.5
 				&& holdTicks < 20) {
 			if (holdTicks++ == 0) bot.counts.holds++;
 			engage = false;
@@ -268,7 +394,6 @@ final class BotBrain {
 		// approach: it steps in from outside your reach and turns back just before entering it. Read by its movement
 		// it looks like it's coming in, so a swing at that moment hits air, and then it punishes. If you start coming
 		// in yourself, it drops the bait and backs off.
-		double approach = -(seenVelocity.x * toX + seenVelocity.z * toZ);
 		if (!baitDecided && readsThisCycle && !engage && !holding && !critPlan && opponentReadyIn <= 0.0F && ownReadyIn > 6.0F
 				&& approach < 0.04 && dist > REACH_EDGE + 0.6 && dist < 4.8 && bot.onGround()) {
 			baitDecided = true;
@@ -325,6 +450,28 @@ final class BotBrain {
 			forward = Math.min(forward, 0.0F);
 			sprint = false;
 		}
+		if (answering) {
+			forward = 1.0F;
+			sprint = true;
+		} else if (backing) {
+			forward = -1.0F;
+			sprint = false;
+		} else if (waiting) {
+			// Holding its swing, not its ground: sprinting at them takes less knockback and keeps them in reach for the answer.
+			forward = dist > 2.4 ? 1.0F : 0.0F;
+			sprint = dist > 2.4;
+		}
+
+		// Uppercut: from further out than walking in would allow, it sprint-jumps and hits on the way up.
+		if (mayAttack && engage && sprint && !critPlan && !uppercutDecided && !answering && !backing && !waiting && bot.onGround()
+				&& dist > 3.4 && dist < 4.6 && ownReadyIn <= 3.0F) {
+			uppercutDecided = true;
+			if (random.nextFloat() < p.uppercut) {
+				jump = true;
+				critDecided = true; // no crit from this jump: it stays on sprint for the hit
+				bot.counts.uppercuts++;
+			}
+		}
 
 		// Crit: jump about 6 ticks early so the fall lines up with the charge, and only if the opponent will be in
 		// reach while it comes down (7 to 12 ticks after the jump). Both keep moving meanwhile: the opponent as the bot
@@ -342,7 +489,7 @@ final class BotBrain {
 		double gapAtFall = Math.max(dist - theirAdvance, Math.min(dist, 2.4)) - ownAdvance;
 		boolean inReachAtFall = dist < 5.0 && gapAtFall < 2.8;
 		boolean safeToJump = !readsThisCycle || opponentReadyIn > 8.0F || age - lastLandedTick < 10;
-		if (mayAttack && !critPlan && !critDecided && bot.onGround() && inReachAtFall && ownReadyIn <= 7.0F && safeToJump) {
+		if (mayAttack && !critPlan && !critDecided && !answering && !backing && !waiting && bot.onGround() && inReachAtFall && ownReadyIn <= 7.0F && safeToJump) {
 			critDecided = true;
 			if (random.nextFloat() < p.crit) {
 				critPlan = true;
@@ -353,8 +500,18 @@ final class BotBrain {
 				bot.counts.critJumps++;
 			}
 		}
-		if (critPlan) sprint = critSprint && !falling; // crits don't count while sprinting
-		if (gotHit && bot.onGround() && random.nextFloat() < p.jumpReset) {
+		// Coming down onto someone backing off, a crit would fall short: it may keep sprinting for a falling sprint hit.
+		if (critPlan && falling && !fallDecided) {
+			fallDecided = true;
+			boolean dodger = bot.habits.dodges();
+			float chance = p.fallingSprint + (dodger ? p.adapt * 0.4F : 0.0F);
+			fallingSprint = approach < -0.03 && bot.food.canSprint() && random.nextFloat() < chance;
+			if (fallingSprint && dodger && p.adapt > 0.0F) bot.habits.adaptedToDodges = true;
+		}
+		if (critPlan) sprint = fallingSprint || (critSprint && !falling); // crits don't count while sprinting
+		if (fallingSprint && critPlan) forward = 1.0F;
+		// A jump reset is for when the opponent is too close to stun it; further out it holds S instead (see reactToHit).
+		if (gotHit && !answering && !backing && age > answerUntil && bot.onGround() && dist < JUMP_RESET_RANGE && random.nextFloat() < p.jumpReset) {
 			jump = true;
 			bot.counts.jumpResets++;
 		}
@@ -369,7 +526,9 @@ final class BotBrain {
 		// only connects if the real crosshair is on you within 3 blocks, so if you've moved since, it whiffs.
 		boolean looksOnTarget = bot.crosshairOn(target, seen);
 		boolean swing;
-		if (critPlan) {
+		if (answering && bot.attackCharge() > 0.9F && looksOnTarget) {
+			swing = true;
+		} else if (critPlan) {
 			// Falling for real: a crit needs fall distance, which only builds once it has actually moved down (the
 			// tick at the top of the jump already has a downward speed but no fall yet).
 			swing = falling && bot.attackCharge() > 0.9F && looksOnTarget;
@@ -378,8 +537,14 @@ final class BotBrain {
 				critPlan = false;
 				bot.counts.critsAbandoned++;
 			}
-		} else if (looksOnTarget && bot.attackStrengthTicker >= swingAtTicks) {
+		} else if (looksOnTarget && bot.attackStrengthTicker >= swingAtTicks && !waiting) {
 			swing = true;
+		} else if (mayAttack && !pickDecided && looksOnTarget && approach < -0.1 && dist >= 2.6 && age - lastLandedTick >= 10 && age - lastLandedTick <= 16) {
+			// You're flying out of its reach from its last hit (10 ticks: the hit before can't be followed sooner) and its
+			// sword isn't full yet: an early hit stops your knockback right at the end of its reach.
+			pickDecided = true;
+			swing = random.nextFloat() < p.pick;
+			if (swing) bot.counts.picks++;
 		} else {
 			swing = age == panicTick && dist < 4.0; // clicks straight back after getting hit, ready or not
 			if (swing) bot.counts.panicSwings++;
@@ -388,15 +553,89 @@ final class BotBrain {
 
 		if (swing) {
 			float charge = bot.attackCharge();
+			boolean grounded = target.onGround();
 			BotEntity.SwingResult result = bot.swingAt(level, target);
 			count(charge, result);
-			if (result != BotEntity.SwingResult.MISS) lastLandedTick = age;
+			boolean landed = result != BotEntity.SwingResult.MISS;
+			if (landed) lastLandedTick = age;
+			noteSwing(result, grounded, approach);
+			if (result == BotEntity.SwingResult.SPRINT_HIT) {
+				if (answering) {
+					if (answeringCrit) {
+						bot.counts.deflections++;
+					} else {
+						bot.counts.hitSelects++;
+					}
+				} else if (fallingSprint) {
+					bot.counts.fallingSprints++;
+				}
+			}
+			if (answering) {
+				// It stepped in to answer, so it backs straight off again to keep them from hitting back.
+				answerUntil = -1;
+				if (landed && random.nextFloat() < p.holdBack) backUntil = age + HOLD_AFTER_ANSWER_TICKS;
+			}
 			newCycle();
-			if (result != BotEntity.SwingResult.MISS && random.nextFloat() < p.wtap) {
+			if (landed && !answering && random.nextFloat() < p.wtap) {
 				wtapPause = 2 + random.nextInt(3);
 				bot.counts.wtaps++;
 			}
 		}
+	}
+
+	/**
+	 * It just got hit. If it was waiting for that, or its sword happens to be ready by the time it reacts, it may answer
+	 * straight back with a sprint hit: after a crit that's a deflection, after anything else a hit select. If not, it may
+	 * hold S to get out of the combo, unless it's on the ground with the opponent so close that a jump reset is better.
+	 */
+	private void reactToHit(LivingEntity target, double dist, double approach, boolean mayAttack) {
+		Habits habits = bot.habits;
+		boolean crit = !target.onGround() && target.fallDistance > 0.0;
+		habits.hitsTaken++;
+		if (crit) habits.critsTaken++;
+		// Waiting for the hit, it sees it coming and times its answer as well as it predicts anything, right on the hit at
+		// the very top; caught out, it's a full reaction. By then the knockback may have carried it out of reach.
+		int reaction = waitingForHit ? roundRandomly(p.trackDelayMs / 50.0 * (1.0 - p.prediction)) : reactionTicks();
+		boolean stillInReach = dist + reaction * (crit ? CRIT_KNOCKBACK_PER_TICK : SPRINT_KNOCKBACK_PER_TICK) <= REACH_EDGE;
+		float chance = waitingForHit ? 1.0F : crit ? deflectChance() : p.hitSelect;
+		if (mayAttack && stillInReach && bot.attackCharge(reaction) > 0.9F && random.nextFloat() < chance) {
+			// An earlier answer that never got its swing in is gone by now.
+			if (answerUntil >= 0) bot.counts.answersLost++;
+			bot.counts.answers++;
+			answerAt = age + reaction;
+			answerUntil = answerAt + ANSWER_TICKS;
+			answeringCrit = crit;
+			critPlan = false;
+			wtapPause = 0;
+			if (crit && habits.crits() && p.adapt > 0.0F) habits.adaptedToCrits = true;
+		} else if ((dist >= JUMP_RESET_RANGE || !bot.onGround()) && approach < CHASED_SPEED && random.nextFloat() < p.holdBack) {
+			backUntil = age + HOLD_BACK_TICKS;
+			critPlan = false;
+			bot.counts.holdBacks++;
+		}
+	}
+
+	/** Against someone who crits a lot, it goes for deflections more. */
+	private float deflectChance() {
+		return p.deflect + (bot.habits.crits() ? p.adapt * 0.3F : 0.0F);
+	}
+
+	/** What this swing says about the opponent's habits: did it hit them on the ground, and did they back off from it? */
+	private void noteSwing(BotEntity.SwingResult result, boolean grounded, double approach) {
+		Habits habits = bot.habits;
+		habits.swings++;
+		if (result == BotEntity.SwingResult.MISS) {
+			if (approach < -0.05) habits.backedOffSwings++;
+		} else if (grounded) {
+			habits.hitsLanded++;
+			watchJumpUntil = age + 3;
+		}
+	}
+
+	/** Whether this fighter is jumping right now: you see a person jump, and a player's jump key says the same. */
+	private static boolean jumping(LivingEntity entity) {
+		if (entity instanceof ServerPlayer player) return player.getLastClientInput().jump();
+		return entity instanceof BotEntity other && other.tickCount - other.lastJumpTick <= 1;
 	}
 
 	private void count(float charge, BotEntity.SwingResult result) {
@@ -425,8 +664,21 @@ final class BotBrain {
 		critPlan = false;
 		critDecided = false;
 		baitDecided = false;
-		selectsThisCycle = random.nextFloat() < p.hitSelect;
+		holdsThisCycle = random.nextFloat() < p.edgeHold;
 		holdTicks = 0;
+		uppercutDecided = false;
+		fallDecided = false;
+		fallingSprint = false;
+		pickDecided = false;
+		deflectsThisCycle = random.nextFloat() < deflectChance() * WAIT_FOR_CRIT_SHARE;
+		selectsThisCycle = random.nextFloat() < p.hitSelect * WAIT_FOR_HIT_SHARE;
+		waitTicks = 0;
+		// Against someone who jumps as hits land, a hit a little later than usual makes that jump come too early.
+		if (bot.habits.jumpsOnHits() && random.nextFloat() < p.adapt) {
+			swingAtTicks += 2 + random.nextInt(3);
+			bot.habits.adaptedToJumps = true;
+			bot.counts.delayedHits++;
+		}
 	}
 
 	/**
@@ -496,9 +748,13 @@ final class BotBrain {
 
 	/** Rounds up with probability equal to the fraction, so 2.4 ticks means 2 or 3 ticks, 2.4 on average. */
 	private int stochasticRound(double ticks) {
+		return Math.max(1, roundRandomly(ticks));
+	}
+
+	private int roundRandomly(double ticks) {
 		int whole = (int) ticks;
 		if (random.nextDouble() < ticks - whole) whole++;
-		return Math.max(1, whole);
+		return whole;
 	}
 
 	private void record(LivingEntity target) {

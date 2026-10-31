@@ -18,7 +18,7 @@ import net.fabricmc.loader.api.FabricLoader;
  * anyone can retune the bots without rebuilding. Delete the file to get the defaults back.
  */
 final class TierConfig {
-	static final int VERSION = 7;
+	static final int VERSION = 8;
 	private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
 	private static final Map<Tier, Profile> PROFILES = new EnumMap<>(Tier.class);
 	private static Data data;

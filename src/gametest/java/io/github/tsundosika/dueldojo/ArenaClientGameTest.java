@@ -17,6 +17,7 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.player.Input;
@@ -138,6 +139,43 @@ public class ArenaClientGameTest implements FabricClientGameTest {
 					"a clean win gets a short note instead");
 			check(tips.get(0).drill() == Drill.TIMING && tips.get(1).drill() == Drill.AIM && tips.get(2).drill() == Drill.REACH,
 					"each tip points to its drill");
+			FightStats picker = new FightStats();
+			picker.swings = 20;
+			picker.hits = 20;
+			picker.sprintHits = 20;
+			picker.early = 6;
+			picker.picks = 3;
+			check(Coach.tips(picker, new FightStats(), Tier.LT5, true).get(0).line().startsWith("Clean match"), "pick hits don't count as early swings");
+			picker.picks = 0;
+			check(Coach.tips(picker, new FightStats(), Tier.LT5, true).get(0).line().startsWith("30% early swings"), "early swings that aren't picks do");
+			FightStats critter = new FightStats();
+			critter.hits = 10;
+			critter.crits = 5;
+			check(Coach.tips(critter, new FightStats(), Tier.LT5, true).stream().noneMatch(t -> t.drill() == Drill.WTAP), "crits count as good hits, no W-tap tip for them");
+			critter.crits = 0;
+			check(Coach.tips(critter, new FightStats(), Tier.LT5, true).stream().anyMatch(t -> t.drill() == Drill.WTAP), "plain hits still get the W-tap tip");
+			FightStats comboed = new FightStats();
+			FightStats comboer = new FightStats();
+			comboer.bestCombo = 4;
+			Coach.Tip comboTip = Coach.tips(comboed, comboer, Tier.LT5, false).get(0);
+			check(comboTip.line().equals("Took 4 hits in a row: hold S to get out") && comboTip.line().length() <= 50 && comboTip.drill() == Drill.COMBO, "the combo tip says to hold S");
+			FightStats beaten = new FightStats();
+			beaten.firstHits = 2;
+			beaten.firstHitsLost = 118;
+			Coach.Tip firstTip = Coach.tips(beaten, new FightStats(), Tier.LT5, false).get(0);
+			check(firstTip.line().startsWith("First hits 2/120") && firstTip.line().length() <= 50 && firstTip.drill() == Drill.FIRST, "losing first hits gets a tip and a drill");
+			beaten.firstHits = 60;
+			beaten.firstHitsLost = 60;
+			check(Coach.tips(beaten, new FightStats(), Tier.LT5, false).stream().noneMatch(t -> t.drill() == Drill.FIRST), "winning half of them doesn't");
+			Map<String, Integer> best = new java.util.HashMap<>();
+			check(Path.next(best) == Path.STEPS.get(0), "the course starts at its first step");
+			best.put(Drill.TIMING.id(), Path.STEPS.get(0).pass() - 1);
+			check(Path.next(best) == Path.STEPS.get(0), "just under the pass mark stays on it");
+			best.put(Drill.TIMING.id(), Path.STEPS.get(0).pass());
+			check(Path.next(best) == Path.STEPS.get(1), "the pass mark moves on");
+			for (Path.Step step : Path.STEPS) best.put(step.drill().id(), 100);
+			check(Path.next(best) == null, "all passed: the course is done");
+			check(java.util.Arrays.stream(Drill.values()).allMatch(d -> Path.STEPS.stream().anyMatch(s -> s.drill() == d)), "every drill is in the course");
 
 			// 6. Keys: a jump right as a hit lands is a jump reset, a later one is late; letting go of W after a hit is a W-tap.
 			server.runOnServer(s -> {
@@ -187,6 +225,159 @@ public class ArenaClientGameTest implements FabricClientGameTest {
 				keys.tick(player);
 				check(keys.wTaps == 1, "letting go of W right after your hit is a W-tap");
 				player.setLastClientInput(idle);
+
+				// Getting out of a combo: S in time after a hit, and no next hit for a while.
+				Input back = new Input(false, true, false, false, false, false, false);
+				FightStats out = new FightStats();
+				List<String> outNotes = new ArrayList<>();
+				out.coach = note -> outNotes.add(note.getString());
+				out.tick(player);
+				other.landed(false, true, 1.0F, out);
+				check(out.justHit(), "a hit is open until it's settled whether you got away");
+				player.setLastClientInput(back);
+				for (int i = 0; i < 30; i++) out.tick(player);
+				check(out.escapes == 1 && !out.justHit() && outNotes.contains("Got away ✓"), "S after a hit, and no next hit, is a hit you got away from");
+				player.setLastClientInput(idle);
+				other.landed(false, true, 1.0F, out);
+				for (int i = 0; i < 30; i++) out.tick(player);
+				check(out.escapes == 1, "not doing anything isn't getting away, even if no next hit comes");
+				other.landed(false, true, 1.0F, out);
+				for (int i = 0; i < 10; i++) out.tick(player);
+				other.landed(false, true, 1.0F, out);
+				check(outNotes.contains("Hold S to get out"), "a second hit while you did nothing says to hold S");
+				for (int i = 0; i < 30; i++) out.tick(player);
+				check(out.escapes == 1, "and neither of those two counts");
+				other.landed(false, true, 1.0F, out);
+				player.setLastClientInput(back);
+				for (int i = 0; i < 10; i++) out.tick(player);
+				other.landed(false, true, 1.0F, out);
+				player.setLastClientInput(idle);
+				for (int i = 0; i < 30; i++) out.tick(player);
+				check(out.escapes == 1, "S but hit again anyway: not away (and S held too late for the next one doesn't count)");
+				other.landed(false, true, 1.0F, out);
+				for (int i = 0; i < 7; i++) out.tick(player);
+				player.setLastClientInput(back);
+				for (int i = 0; i < 30; i++) out.tick(player);
+				player.setLastClientInput(idle);
+				check(out.escapes == 1, "S more than 6 ticks after the hit is too late");
+				FightStats comboScore = new FightStats();
+				comboScore.hitsTaken = 2;
+				comboScore.escapes = 1;
+				check(Drill.COMBO.score(comboScore, new FightStats()) == -1, "the combo drill needs a few hits to score");
+				comboScore.hitsTaken = 4;
+				comboScore.escapes = 2;
+				check(Drill.COMBO.score(comboScore, new FightStats()) == 50, "the combo drill scores hits you got away from");
+
+				// Pick hits: an early hit that landed at the far end of your reach; not in the timing drill, not up close.
+				FightStats picks = new FightStats();
+				FightStats strict = new FightStats();
+				strict.allowPicks = false;
+				FightStats close = new FightStats();
+				player.resetAttackStrengthTicker();
+				picks.tick(player);
+				strict.tick(player);
+				close.tick(player);
+				picks.landed(false, false, 1.0F, other);
+				picks.landedAtEdge();
+				strict.landed(false, false, 1.0F, other);
+				strict.landedAtEdge();
+				close.landed(false, false, 1.0F, other);
+				player.swing(InteractionHand.MAIN_HAND);
+				picks.tick(player);
+				strict.tick(player);
+				close.tick(player);
+				check(picks.early == 1 && picks.picks == 1 && picks.earlyMistakes() == 0, "an early hit at the edge of reach is a pick, not a mistake");
+				check(strict.early == 1 && strict.picks == 0 && strict.earlyMistakes() == 1, "in the timing drill it still counts as early");
+				check(close.early == 1 && close.picks == 0 && close.earlyMistakes() == 1, "an early hit up close is just early");
+				check(picks.moves.getOrDefault(Move.PICK, 0) == 1, "and it's named as a move");
+
+				// First hits: the first hit after a quiet spell, from either side; hits in the exchange after it aren't.
+				FightStats a = new FightStats();
+				FightStats b = new FightStats();
+				a.landed(false, true, 1.0F, b);
+				check(a.firstHits == 1 && b.firstHitsLost == 1, "the opening hit is a first hit");
+				for (int i = 0; i < 13; i++) {
+					a.tick(player);
+					b.tick(player);
+				}
+				a.landed(false, true, 1.0F, b);
+				for (int i = 0; i < 13; i++) {
+					a.tick(player);
+					b.tick(player);
+				}
+				b.landed(false, true, 1.0F, a);
+				check(a.firstHits == 1 && b.firstHits == 0, "hits during the exchange aren't");
+				for (int i = 0; i < 31; i++) {
+					a.tick(player);
+					b.tick(player);
+				}
+				b.landed(false, true, 1.0F, a);
+				check(b.firstHits == 1 && a.firstHitsLost == 1, "after a quiet spell the next hit is a first hit again");
+				Drill first = Drill.FIRST;
+				a.firstHits = 3;
+				a.firstHitsLost = 1;
+				check(first.score(a, b) == 75, "the first hit drill scores first hits won");
+				a.stunHits = 3;
+				a.hits = 6;
+				check(Drill.STUN.score(a, b) == 50, "the stun combo drill scores spaced sprint hits");
+
+				// Named moves, from what just happened.
+				FightStats mover = new FightStats();
+				FightStats foe = new FightStats();
+				foe.landed(false, true, 1.0F, mover);
+				mover.landed(false, true, 1.0F, foe);
+				check(mover.moves.getOrDefault(Move.HIT_SELECT, 0) == 1, "a sprint hit straight after being hit is a hit select");
+				FightStats deflector = new FightStats();
+				foe.landed(true, false, 1.0F, deflector);
+				deflector.landed(false, true, 1.0F, foe);
+				check(deflector.moves.getOrDefault(Move.DEFLECTION, 0) == 1, "a sprint hit straight after being critted is a deflection");
+				FightStats punisher = new FightStats();
+				foe.landed(false, true, 1.0F, punisher);
+				punisher.landed(true, false, 1.0F, foe);
+				check(punisher.moves.getOrDefault(Move.PUNISH_CRIT, 0) == 1, "a crit straight after being hit, without jumping, is a punish crit");
+				FightStats plain = new FightStats();
+				plain.landed(false, true, 1.0F, foe);
+				check(plain.moves.isEmpty(), "a plain opening sprint hit isn't a named move");
+
+				// What a bot notices over a series, and only once there's enough to go on.
+				BotBrain.Habits habits = new BotBrain.Habits();
+				habits.hitsLanded = 5;
+				habits.jumpedOnHit = 5;
+				check(!habits.jumpsOnHits(), "five hits aren't enough to read someone");
+				habits.hitsLanded = 10;
+				habits.jumpedOnHit = 3;
+				check(!habits.jumpsOnHits(), "the odd jump isn't a habit");
+				habits.jumpedOnHit = 4;
+				check(habits.jumpsOnHits(), "jumping on 4 of 10 hits is");
+				habits.hitsTaken = 10;
+				habits.critsTaken = 4;
+				habits.swings = 8;
+				habits.backedOffSwings = 2;
+				check(habits.crits() && habits.dodges(), "crits and backing off get noticed too");
+				check(DuelManager.readLine(new BotBrain.Habits()) == null, "nothing to say when it didn't adapt");
+				habits.adaptedToJumps = true;
+				check(DuelManager.readLine(habits).equals("It read you: delayed its hits against your jump resets. Change it up."), "it tells you what it read");
+
+				// Drills keep to the one thing they practise, and the moves come in over the tiers.
+				for (Drill drill : Drill.values()) {
+					Profile drilled2 = drill.profile(TierConfig.profile(Tier.HT1));
+					check(drilled2.deflect == 0.0F && drilled2.holdBack == 0.0F && drilled2.adapt == 0.0F, drill.title + " drill bot doesn't use the crit fight");
+				}
+				check(TierConfig.profile(Tier.LT5).deflect == 0.0F && TierConfig.profile(Tier.LT5).hitSelect == 0.0F && TierConfig.profile(Tier.LT5).adapt == 0.0F, "the lowest tier doesn't use them");
+				check(TierConfig.profile(Tier.HT1).deflect > 0.5F && TierConfig.profile(Tier.HT1).holdBack > 0.5F && TierConfig.profile(Tier.HT1).adapt > 0.5F, "the top tier does");
+
+				ServerLevel level = (ServerLevel) player.level();
+				BotEntity target = new BotEntity(DuelDojo.BOT, level);
+				target.setPos(player.getX() + 3.0, player.getY(), player.getZ());
+				target.xo = target.getX() - 0.3;
+				target.zo = target.getZ();
+				check(FightStats.atEdgeMovingAway(player, target), "3 blocks away and moving away is at the edge");
+				target.xo = target.getX() + 0.3;
+				check(!FightStats.atEdgeMovingAway(player, target), "coming towards you isn't");
+				target.setPos(player.getX() + 2.0, player.getY(), player.getZ());
+				target.xo = target.getX() - 0.3;
+				target.zo = target.getZ();
+				check(!FightStats.atEdgeMovingAway(player, target), "up close isn't either");
 			});
 
 			// 7. Drill scores, placement steps and the progress trend.
@@ -209,7 +400,8 @@ public class ArenaClientGameTest implements FabricClientGameTest {
 				matches.add(m);
 			}
 			List<Component> trend = Progress.trend(matches);
-			check(trend.size() == 6 && trend.get(1).getString().equals(" Hit rate 60% (was 30%) ↑"), "the trend compares recent matches with earlier ones");
+			check(trend.size() == 7 && trend.get(1).getString().equals(" Hit rate 60% (was 30%) ↑"), "the trend compares recent matches with earlier ones");
+			check(trend.get(2).getString().equals(" First hits -"), "old matches without first hits don't break it");
 
 			// 8. A whole timing drill: no rounds, the bot never hits you, it ends by itself, and everything comes back.
 			server.runOnServer(s -> {
@@ -284,7 +476,8 @@ public class ArenaClientGameTest implements FabricClientGameTest {
 			server.runOnServer(s -> check("RUN".equals(DuelManager.stage(player(s))), "three full-charge swings finish try it"));
 			server.runOnServer(s -> DuelManager.stop(player(s)));
 
-			// A jump pressed as the hit lands has to count, in the slowed-down "try it" of the combo drill.
+			// S pressed as the hit shows up has to get you out, in the slowed-down "try it" of the combo drill, even
+			// against the best bot, and with the walls in play: three in a row need more room than there is behind you.
 			server.runOnServer(s -> DuelManager.startDrill(player(s), Drill.COMBO, Tier.HT1, true));
 			context.waitFor(client -> client.screen instanceof DrillTutorialScreen);
 			context.runOnClient(client -> client.screen.onClose());
@@ -295,11 +488,10 @@ public class ArenaClientGameTest implements FabricClientGameTest {
 			for (int waited = 0; waited < 20 * 90 && server.computeOnServer(s -> "TRY".equals(DuelManager.stage(player(s)))); waited++) {
 				int hurt = server.computeOnServer(s -> player(s).hurtTime);
 				if (hurt > lastHurt) {
-					// As long as a real key press: a press and release can fall in one server tick, which it can't see.
-					context.getInput().holdKey(options -> options.keyJump);
-					context.waitTicks(3);
-					context.getInput().releaseKey(options -> options.keyJump);
-					waited += 3;
+					context.getInput().holdKey(options -> options.keyDown);
+					context.waitTicks(60);
+					context.getInput().releaseKey(options -> options.keyDown);
+					waited += 60;
 					presses++;
 				} else {
 					context.waitTick();
@@ -308,10 +500,21 @@ public class ArenaClientGameTest implements FabricClientGameTest {
 			}
 			int pressed = presses;
 			server.runOnServer(s -> {
-				check("RUN".equals(DuelManager.stage(player(s))), "jumps as the hit shows up are jump resets (" + pressed + " presses for 2 resets)");
+				check("RUN".equals(DuelManager.stage(player(s))), "holding S as the hit shows up gets you out (" + pressed + " holds for 3)");
 				check(s.tickRateManager().tickrate() == 20.0F, "the speed is back for the real drill");
 				DuelManager.stop(player(s));
 			});
+
+			// The two newest drills run: the bot comes in on the first hit one, and the stun one keeps its bot in the arena.
+			for (Drill newDrill : List.of(Drill.FIRST, Drill.STUN)) {
+				server.runOnServer(s -> DuelManager.startDrill(player(s), newDrill, Tier.LT3, false));
+				context.waitTicks(20 * 8);
+				server.runOnServer(s -> {
+					check(DuelManager.inDuel(player(s)), newDrill.title + " drill is running");
+					DuelManager.stop(player(s));
+					checkOwnItemsBack(player(s));
+				});
+			}
 
 			// Skipping: holding Shift in "try it", and the window's Skip button.
 			server.runOnServer(s -> DuelManager.startDrill(player(s), Drill.REACH, Tier.LT5, true));

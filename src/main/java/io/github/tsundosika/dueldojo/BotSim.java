@@ -408,8 +408,17 @@ public final class BotSim {
 					percent(c.critsAbandoned, c.critJumps), percent(c.wtaps, c.hits), percent(c.panicSwings, c.swings),
 					percent(c.strafeTicks, c.closeTicks), percent(c.jumpResets, c.hitsTaken)));
 		}
+		sb.append("The crit fight, per 100 swings: crit deflections | hit selects | uppercut jumps | falling sprint hits | pick hits | delayed hits"
+				+ " || per 100 hits taken: held S\n");
+		for (Tier tier : Tier.values()) {
+			BotBrain.Counts c = byTier[tier.ordinal()];
+			if (c == null || c.swings == 0) continue;
+			sb.append(String.format(Locale.ROOT, "%s: %d | %d | %d | %d | %d | %d || %d%n", tier.id, percent(c.deflections, c.swings), percent(c.hitSelects, c.swings),
+					percent(c.uppercuts, c.swings), percent(c.fallingSprints, c.swings), percent(c.picks, c.swings), percent(c.delayedHits, c.swings),
+					percent(c.holdBacks, c.hitsTaken)));
+		}
 		sb.append("Reading the opponent: jukes per minute close | baits per 100 swings, swings they drew, of those that still hit"
-				+ " | hit-select holds per 100 swings | opponent pinned to a wall / getting itself out (share of time close)\n");
+				+ " | holds at the edge per 100 swings | opponent pinned to a wall / getting itself out (share of time close)\n");
 		for (Tier tier : Tier.values()) {
 			BotBrain.Counts c = byTier[tier.ordinal()];
 			if (c == null || c.swings == 0) continue;

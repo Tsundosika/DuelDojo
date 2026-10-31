@@ -13,11 +13,11 @@ public enum Tier {
 	HT5("HT5", 0x4974B5, "Still swings early and panic-clicks sometimes; rarely strafes, first W-taps and crit jumps."),
 	LT4("LT4", 0x739F57, "Steadier timing, starts to strafe, W-taps and crit-jumps now and then."),
 	HT4("HT4", 0x9FD27F, "Holds some spacing, W-taps about a third of the time, starts reading your cooldown."),
-	LT3("LT3", 0xBD6B2B, "Solid fundamentals: strafes half the time, W-taps, crits and jump resets more often."),
-	HT3("HT3", 0xEB9138, "Reads your cooldown, punishes early swings, starts juking your aim and using the walls."),
-	LT2("LT2", 0x858D9C, "Jukes when your aim catches up, baits, waits at the edge for you to step in."),
-	HT2("HT2", 0x9EB3D1, "Out-spaces you, pushes you into walls and punishes every early swing."),
-	LT1("LT1", 0xC4A34B, "Near-elite reactions and timing, punishes almost every mistake."),
+	LT3("LT3", 0xBD6B2B, "Solid fundamentals: strafes half the time, W-taps, crits, jump resets, backs out of combos."),
+	HT3("HT3", 0xEB9138, "Reads your cooldown, punishes early swings, juking your aim, using the walls, first crit deflections."),
+	LT2("LT2", 0x858D9C, "Jukes, baits, waits at the edge; hit-selects, deflects crits, uppercuts, starts reading your habits."),
+	HT2("HT2", 0x9EB3D1, "Out-spaces you, pushes you into walls, falling sprint hits on your dodges, punishes every early swing."),
+	LT1("LT1", 0xC4A34B, "Near-elite reactions and timing, punishes almost every mistake and adapts to what you keep doing."),
 	HT1("HT1", 0xFFDA55, "Human-elite ceiling: ~170 ms reactions, tight tracking, full technique every exchange.");
 
 	public final String id;

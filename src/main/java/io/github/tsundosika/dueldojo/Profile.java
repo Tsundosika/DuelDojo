@@ -51,10 +51,24 @@ public final class Profile {
 	public float aimReact;
 	/** Chance per cooldown cycle to bait: dip into your reach and straight back out so you swing at air. */
 	public float bait;
-	/** Chance per cooldown cycle to hit-select: when you're both charged it waits at the edge of reach for you to step in. */
-	public float hitSelect;
+	/** Chance per cooldown cycle, when you're both charged, to wait at the edge of reach for you to step in. */
+	public float edgeHold;
 	/** How much it plays the walls: knocks you toward them and gets itself out when it's the one pinned. */
 	public float walls;
+	/** Chance to answer a crit with a sprint hit right after it (a crit deflection), if its sword is ready in time. */
+	public float deflect;
+	/** Chance to answer any other hit with a sprint hit right after it (a hit select), if its sword is ready in time. */
+	public float hitSelect;
+	/** Chance to hold S after a hit it can't answer, unless you're too close for that to help: the way out of a combo. */
+	public float holdBack;
+	/** Chance per cooldown cycle to sprint-jump in from far out and hit on the way up (an uppercut). */
+	public float uppercut;
+	/** Chance, coming down from a crit jump onto someone backing off, to keep sprinting for a falling sprint hit instead. */
+	public float fallingSprint;
+	/** Chance to hit early to catch you at the far end of its reach as you fly away from its last hit (a pick hit). */
+	public float pick;
+	/** How much it adapts to your habits over a series: delaying hits against jump resets, and so on (0 … 1). */
+	public float adapt;
 
 	/** Skill 0 (LT5). Sources for the human-performance values are in the README. */
 	static Profile beginner() {
@@ -81,8 +95,17 @@ public final class Profile {
 		// Advanced reads: nothing at the bottom, they start around the middle tiers (where each value crosses 0).
 		p.aimReact = -0.3F;
 		p.bait = -0.4F;
-		p.hitSelect = -0.3F;
+		p.edgeHold = -0.3F;
 		p.walls = -0.15F;
+		// The moves in the order a player learns them: holding S first, the crit fight and hit selects in the middle,
+		// picks and falling sprint hits late. Where each one starts is an estimate; no tier-by-tier data exists.
+		p.holdBack = 0.1F;
+		p.deflect = -0.2F;
+		p.adapt = -0.4F;
+		p.hitSelect = -0.4F;
+		p.uppercut = -0.25F;
+		p.fallingSprint = -0.5F;
+		p.pick = -0.5F;
 		return p;
 	}
 
@@ -110,8 +133,15 @@ public final class Profile {
 		p.adaptHealth = 1.0F;
 		p.aimReact = 0.9F;
 		p.bait = 0.8F;
-		p.hitSelect = 0.9F;
+		p.edgeHold = 0.9F;
 		p.walls = 0.9F;
+		p.holdBack = 0.95F;
+		p.deflect = 0.85F;
+		p.adapt = 1.0F;
+		p.hitSelect = 0.8F;
+		p.uppercut = 0.35F;
+		p.fallingSprint = 0.7F;
+		p.pick = 0.5F;
 		return p;
 	}
 
@@ -153,8 +183,15 @@ public final class Profile {
 		adaptHealth = clamp(adaptHealth, 0.0F, 1.0F);
 		aimReact = clamp(aimReact, 0.0F, 1.0F);
 		bait = clamp(bait, 0.0F, 1.0F);
-		hitSelect = clamp(hitSelect, 0.0F, 1.0F);
+		edgeHold = clamp(edgeHold, 0.0F, 1.0F);
 		walls = clamp(walls, 0.0F, 1.0F);
+		deflect = clamp(deflect, 0.0F, 1.0F);
+		hitSelect = clamp(hitSelect, 0.0F, 1.0F);
+		holdBack = clamp(holdBack, 0.0F, 1.0F);
+		uppercut = clamp(uppercut, 0.0F, 1.0F);
+		fallingSprint = clamp(fallingSprint, 0.0F, 1.0F);
+		pick = clamp(pick, 0.0F, 1.0F);
+		adapt = clamp(adapt, 0.0F, 1.0F);
 		return this;
 	}
 
